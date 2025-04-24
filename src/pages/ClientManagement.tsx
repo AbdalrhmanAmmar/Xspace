@@ -12,7 +12,6 @@ import {
   Trash2,
   X,
   Search,
-  TrashIcon,
 } from "lucide-react";
 import type { Client, Visit } from "../types/client";
 import type { Product, CartItem } from "../types/product";
@@ -49,11 +48,15 @@ export const ClientManagement = () => {
   const [selectedProducts, setSelectedProducts] = useState<CartItem[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [newProductId, setNewProductId] = useState<string>("");
-  const [newProductQuantity, setNewProductQuantity] = useState<number>(1);
+  const [productSearchTerm, setProductSearchTerm] = useState("");
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
+  const [newProductId, setNewProductId] = useState("");
+  const [newProductQuantity, setNewProductQuantity] = useState(1);
 
-  // سعر الساعة
   const HOUR_RATE = 10;
+  const HOUR_RATE_FIRST = 10;
+  const HOUR_RATE_NEXT = 5;
 
   useEffect(() => {
     if (user) {
@@ -62,6 +65,14 @@ export const ClientManagement = () => {
       fetchVisits();
     }
   }, [user]);
+
+  useEffect(() => {
+    setFilteredProducts(
+      products.filter((product) =>
+        product.name.toLowerCase().includes(productSearchTerm.toLowerCase())
+      )
+    );
+  }, [productSearchTerm, products]);
 
   const fetchClients = async () => {
     try {
@@ -322,7 +333,6 @@ export const ClientManagement = () => {
     }
   };
 
-  // Format date to show only hours and minutes
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString("en-US", {
       hour: "2-digit",
@@ -331,7 +341,6 @@ export const ClientManagement = () => {
     });
   };
 
-  // Format date to show Gregorian date
   const formatDate = (date: Date) => {
     return date.toLocaleDateString("en-US", {
       year: "numeric",
@@ -340,43 +349,37 @@ export const ClientManagement = () => {
     });
   };
 
-  const HOUR_RATE_FIRST = 10;
-  const HOUR_RATE_NEXT = 5;
-
   const calculateVisitDuration = (visit: Visit): number => {
     let totalMilliseconds: number;
-  
+
     if (!visit.endTime) {
       totalMilliseconds = new Date().getTime() - visit.startTime.getTime();
     } else {
       totalMilliseconds = visit.endTime.getTime() - visit.startTime.getTime();
     }
-  
+
     visit.pauseHistory.forEach((pause) => {
       const pauseEnd = pause.endTime || new Date();
       totalMilliseconds -= pauseEnd.getTime() - pause.startTime.getTime();
     });
-  
+
     const totalMinutes = Math.floor(totalMilliseconds / (1000 * 60));
-  
+
     if (totalMinutes < 15) {
       return 0;
     }
-  
+
     const fullHours = Math.floor(totalMinutes / 60);
     const remainingMinutes = totalMinutes % 60;
-  
+
     return remainingMinutes >= 15 ? fullHours + 1 : fullHours;
   };
-  
-  // حساب تكلفة الوقت فقط
+
   const calculateTimeCost = (hours: number): number => {
     if (hours === 0) return 0;
     if (hours === 1) return HOUR_RATE_FIRST;
     return HOUR_RATE_FIRST + (hours - 1) * HOUR_RATE_NEXT;
   };
-  
-
 
   const calculateTotalAmount = (visit: Visit): number => {
     const productsTotal = visit.products.reduce(
@@ -538,6 +541,7 @@ export const ClientManagement = () => {
       // Reset form
       setNewProductId("");
       setNewProductQuantity(1);
+      setProductSearchTerm("");
     } catch (err) {
       console.error("Error adding product:", err);
       setError("حدث خطأ أثناء إضافة المنتج");
@@ -598,11 +602,8 @@ export const ClientManagement = () => {
         throw new Error("الزيارة غير موجودة");
       }
 
-      // 2. حذف جميع السجلات المرتبطة (اختياري حسب احتياجاتك)
-      // أ. حذف المنتجات المرتبطة
+      // 2. حذف جميع السجلات المرتبطة
       await supabase.from("visit_products").delete().eq("visit_id", visitId);
-
-      // ب. حذف التوقفات المؤقتة
       await supabase.from("visit_pauses").delete().eq("visit_id", visitId);
 
       // 3. حذف الزيارة نفسها
@@ -637,7 +638,6 @@ export const ClientManagement = () => {
     visit.clientName.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // تنسيق العملة بالجنيه المصري
   const formatCurrency = (amount: number) => {
     return `${amount.toLocaleString("ar-EG")} جنيه`;
   };
@@ -784,12 +784,12 @@ export const ClientManagement = () => {
 
             <div className="space-y-4">
               {filteredVisits.map((visit) => (
-                <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 cursor-pointer hover:bg-slate-800/70 transition-colors flex justify-between">
-                  <div
-                    className="flex justify-between items-center  w-full"
-                    key={visit.id}
-                    onClick={() => setSelectedVisit(visit)}
-                  >
+                <div
+                  key={visit.id}
+                  className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 cursor-pointer hover:bg-slate-800/70 transition-colors flex justify-between"
+                  onClick={() => setSelectedVisit(visit)}
+                >
+                  <div className="flex justify-between items-center w-full">
                     <div>
                       <h4 className="text-white font-medium">
                         {visit.clientName}
@@ -799,7 +799,7 @@ export const ClientManagement = () => {
                         {formatTime(visit.startTime)}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 ml-6 ">
+                    <div className="flex items-center gap-2 ml-6">
                       {visit.endTime ? (
                         <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm">
                           منتهية
@@ -817,7 +817,10 @@ export const ClientManagement = () => {
                   </div>
                   <button
                     className="text-red-500"
-                    onClick={() => deleteVisitRecord(visit.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteVisitRecord(visit.id);
+                    }}
                     disabled={loading}
                   >
                     <Trash2 />
@@ -938,19 +941,49 @@ export const ClientManagement = () => {
                     إضافة منتجات
                   </h3>
                   <div className="flex gap-3">
-                    <select
-                      value={newProductId}
-                      onChange={(e) => setNewProductId(e.target.value)}
-                      className="flex-1 px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      disabled={loading || !!selectedVisit.endTime}
-                    >
-                      <option value="">اختر منتج</option>
-                      {products.map((product) => (
-                        <option key={product.id} value={product.id}>
-                          {product.name} - {formatCurrency(product.price)}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={productSearchTerm}
+                        onChange={(e) => setProductSearchTerm(e.target.value)}
+                        onFocus={() => setIsProductDropdownOpen(true)}
+                        onBlur={() =>
+                          setTimeout(() => setIsProductDropdownOpen(false), 200)
+                        }
+                        placeholder="ابحث عن منتج..."
+                        className="w-full px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        disabled={loading || !!selectedVisit.endTime}
+                      />
+
+                      {isProductDropdownOpen && (
+                        <div className="absolute z-10 mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg shadow-lg max-h-60 overflow-auto">
+                          {filteredProducts.length > 0 ? (
+                            filteredProducts.map((product) => (
+                              <div
+                                key={product.id}
+                                onClick={() => {
+                                  setNewProductId(product.id);
+                                  setProductSearchTerm(
+                                    `${product.name} - ${formatCurrency(
+                                      product.price
+                                    )}`
+                                  );
+                                  setIsProductDropdownOpen(false);
+                                }}
+                                className="px-4 py-2 hover:bg-slate-700 cursor-pointer flex justify-between text-white"
+                              >
+                                <span>{product.name}</span>
+                                <span>{formatCurrency(product.price)}</span>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="px-4 py-2 text-slate-400">
+                              لا توجد منتجات مطابقة
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
 
                     <div className="flex items-center gap-2 bg-slate-800 rounded-lg border border-slate-700 px-3">
                       <button
