@@ -903,36 +903,6 @@ export const ClientManagement = () => {
                     <h3 className="text-sm font-medium text-slate-300 mb-3">
                       إدارة الزيارة
                     </h3>
-                    <div className="flex gap-3">
-                      {selectedVisit.isPaused ? (
-                        <button
-                          onClick={() => resumeVisit(selectedVisit.id)}
-                          disabled={loading}
-                          className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors disabled:opacity-50"
-                        >
-                          <Play className="h-4 w-4" />
-                          استئناف
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => pauseVisit(selectedVisit.id)}
-                          disabled={loading}
-                          className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-yellow-700 transition-colors disabled:opacity-50"
-                        >
-                          <Pause className="h-4 w-4" />
-                          إيقاف مؤقت
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() => endVisit(selectedVisit.id)}
-                        disabled={loading}
-                        className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-red-700 transition-colors disabled:opacity-50"
-                      >
-                        <StopCircle className="h-4 w-4" />
-                        إنهاء الزيارة
-                      </button>
-                    </div>
                   </div>
                 )}
 
@@ -1099,6 +1069,36 @@ export const ClientManagement = () => {
                     </div>
                   </div>
                 </div>
+              </div>
+              <div className="flex gap-3">
+                {selectedVisit.isPaused ? (
+                  <button
+                    onClick={() => resumeVisit(selectedVisit.id)}
+                    disabled={loading}
+                    className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    <Play className="h-4 w-4" />
+                    استئناف
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => pauseVisit(selectedVisit.id)}
+                    disabled={loading}
+                    className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-yellow-700 transition-colors disabled:opacity-50"
+                  >
+                    <Pause className="h-4 w-4" />
+                    إيقاف مؤقت
+                  </button>
+                )}
+
+                <button
+                  onClick={() => endVisit(selectedVisit.id)}
+                  disabled={loading}
+                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-red-700 transition-colors disabled:opacity-50"
+                >
+                  <StopCircle className="h-4 w-4" />
+                  إنهاء الزيارة
+                </button>
               </div>
             </div>
           </div>
