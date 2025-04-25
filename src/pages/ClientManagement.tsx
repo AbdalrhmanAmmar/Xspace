@@ -15,6 +15,7 @@ import type { Client, Visit } from "../types/client";
 import type { Product, CartItem } from "../types/product";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { Spinner } from "../components/Spinner";
 
 interface ClientSubscription {
   id: string;
@@ -51,6 +52,10 @@ export const ClientManagement = () => {
   const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
   const [newProductId, setNewProductId] = useState("");
   const [newProductQuantity, setNewProductQuantity] = useState(1);
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
+  const [password, setPassword] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   //time
   const [isEditingTime, setIsEditingTime] = useState(false);
@@ -86,6 +91,24 @@ export const ClientManagement = () => {
       fetchVisits();
     }
   }, [user]);
+
+  const calculateVisitStats = () => {
+    let ongoing = 0;
+    let finished = 0;
+    let paused = 0;
+
+    visits.forEach((visit) => {
+      if (visit.endTime) {
+        finished++;
+      } else if (visit.isPaused) {
+        paused++;
+      } else {
+        ongoing++;
+      }
+    });
+
+    return { ongoing, finished, paused };
+  };
 
   const saveTimeChanges = async () => {
     if (!selectedVisit) return;
@@ -725,6 +748,51 @@ export const ClientManagement = () => {
     }
   };
 
+  const deleteAllVisits = async () => {
+    if (!user) {
+      setDeleteError("يجب تسجيل الدخول أولاً");
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+      setDeleteError("");
+
+      // التحقق من كلمة المرور
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email || "",
+        password: password,
+      });
+
+      if (authError) {
+        throw new Error("كلمة المرور غير صحيحة");
+      }
+
+      // حذف جميع سجلات الزيارات المرتبطة
+      await supabase.from("visit_products").delete().neq("id", 0);
+      await supabase.from("visit_pauses").delete().neq("id", 0);
+
+      // حذف جميع الزيارات
+      const { error: deleteError } = await supabase
+        .from("visits")
+        .delete()
+        .neq("id", 0);
+
+      if (deleteError) throw deleteError;
+
+      // تحديث الحالة وإغلاق المودال
+      setVisits([]);
+      setShowDeleteAllModal(false);
+      setPassword("");
+      alert("تم حذف جميع الزيارات بنجاح");
+    } catch (err: any) {
+      console.error("Error deleting all visits:", err);
+      setDeleteError(err.message || "حدث خطأ أثناء حذف الزيارات");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const filteredVisits = visits.filter((visit) =>
     visit.clientName.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -752,6 +820,34 @@ export const ClientManagement = () => {
               <Users className="h-5 w-5" />
               تسجيل زيارة
             </h2>
+            <button
+              onClick={() => setShowDeleteAllModal(true)}
+              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              مسح الكل
+            </button>
+            <div className="flex gap-4 mt-3">
+              <div className="bg-blue-500/20 px-3 py-1 rounded-full flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                <span className="text-xs text-blue-300">
+                  جارية:{" "}
+                  {visits.filter((v) => !v.endTime && !v.isPaused).length}
+                </span>
+              </div>
+              <div className="bg-yellow-500/20 px-3 py-1 rounded-full flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
+                <span className="text-xs text-yellow-300">
+                  متوقفة: {visits.filter((v) => v.isPaused).length}
+                </span>
+              </div>
+              <div className="bg-green-500/20 px-3 py-1 rounded-full flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                <span className="text-xs text-green-300">
+                  منتهية: {visits.filter((v) => v.endTime).length}
+                </span>
+              </div>
+            </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
               <div>
@@ -859,7 +955,12 @@ export const ClientManagement = () => {
 
           <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-white">سجل الزيارات</h2>
+              <div>
+                <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  سجل الزيارات
+                </h2>
+              </div>
               <div className="relative w-64">
                 <Search className="absolute right-3 top-2.5 h-5 w-5 text-slate-400" />
                 <input
@@ -1255,6 +1356,71 @@ export const ClientManagement = () => {
           </div>
         )}
       </div>
+      {showDeleteAllModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-xl p-6 w-full max-w-md border border-slate-700">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-white">
+                تأكيد حذف جميع الزيارات
+              </h3>
+              <button
+                onClick={() => {
+                  setShowDeleteAllModal(false);
+                  setPassword("");
+                  setDeleteError("");
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <p className="text-slate-300 mb-4">
+              سيتم حذف جميع سجلات الزيارات بشكل دائم. هذه العملية لا يمكن
+              التراجع عنها.
+            </p>
+
+            <div className="mb-4">
+              <label className="block text-sm text-slate-400 mb-2">
+                أدخل كلمة المرور للتأكيد:
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                placeholder="كلمة المرور"
+                autoFocus
+              />
+            </div>
+
+            {deleteError && (
+              <div className="text-red-400 text-sm mb-4">{deleteError}</div>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteAllModal(false);
+                  setPassword("");
+                  setDeleteError("");
+                }}
+                className="px-4 py-2 text-white bg-slate-600 hover:bg-slate-700 rounded-lg"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={deleteAllVisits}
+                disabled={!password || isDeleting}
+                className="px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50 flex items-center gap-2"
+              >
+                {isDeleting ? "جاري الحذف..." : "تأكيد الحذف"}
+                {isDeleting && <Spinner />}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
