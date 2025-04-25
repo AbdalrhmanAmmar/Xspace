@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import {
   Users,
-
   Plus,
   Minus,
   Pause,
@@ -10,6 +9,7 @@ import {
   Trash2,
   X,
   Search,
+  Edit,
 } from "lucide-react";
 import type { Client, Visit } from "../types/client";
 import type { Product, CartItem } from "../types/product";
@@ -52,10 +52,32 @@ export const ClientManagement = () => {
   const [newProductId, setNewProductId] = useState("");
   const [newProductQuantity, setNewProductQuantity] = useState(1);
 
+  //time
+  const [isEditingTime, setIsEditingTime] = useState(false);
+  const [editedStartTime, setEditedStartTime] = useState("");
+  const [editedEndTime, setEditedEndTime] = useState("");
+
   const HOUR_RATE = 10;
   const HOUR_RATE_FIRST = 10;
   const HOUR_RATE_NEXT = 5;
 
+  //edit-time
+  const formatDateTimeForInput = (date: Date) => {
+    const pad = (num: number) => num.toString().padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+      date.getDate()
+    )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+  useEffect(() => {
+    if (selectedVisit) {
+      setEditedStartTime(formatDateTimeForInput(selectedVisit.startTime));
+      setEditedEndTime(
+        selectedVisit.endTime
+          ? formatDateTimeForInput(selectedVisit.endTime)
+          : ""
+      );
+    }
+  }, [selectedVisit]);
   useEffect(() => {
     if (user) {
       fetchClients();
@@ -63,6 +85,56 @@ export const ClientManagement = () => {
       fetchVisits();
     }
   }, [user]);
+
+  const saveTimeChanges = async () => {
+    if (!selectedVisit) return;
+
+    try {
+      setLoading(true);
+
+      const updates: any = {
+        start_time: new Date(editedStartTime).toISOString(),
+      };
+
+      if (editedEndTime) {
+        updates.end_time = new Date(editedEndTime).toISOString();
+      }
+
+      const { error } = await supabase
+        .from("visits")
+        .update(updates)
+        .eq("id", selectedVisit.id);
+
+      if (error) throw error;
+
+      // تحديث حالة الزيارة المحلية
+      setSelectedVisit({
+        ...selectedVisit,
+        startTime: new Date(editedStartTime),
+        endTime: editedEndTime ? new Date(editedEndTime) : undefined,
+      });
+
+      // تحديث قائمة الزيارات
+      setVisits(
+        visits.map((v) =>
+          v.id === selectedVisit.id
+            ? {
+                ...v,
+                startTime: new Date(editedStartTime),
+                endTime: editedEndTime ? new Date(editedEndTime) : undefined,
+              }
+            : v
+        )
+      );
+
+      setIsEditingTime(false);
+    } catch (err) {
+      console.error("Error updating visit time:", err);
+      setError("حدث خطأ أثناء تحديث وقت الزيارة");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     setFilteredProducts(
@@ -332,11 +404,12 @@ export const ClientManagement = () => {
   };
 
   const formatTime = (date: Date) => {
-    return date.toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    const ampm = hours >= 12 ? "مساءً" : "صباحاً";
+    const twelveHour = hours % 12 || 12;
+
+    return `${twelveHour}:${minutes.toString().padStart(2, "0")} ${ampm}`;
   };
 
   const formatDate = (date: Date) => {
@@ -862,11 +935,66 @@ export const ClientManagement = () => {
                     <h3 className="text-sm font-medium text-slate-300 mb-1">
                       التاريخ والوقت
                     </h3>
+
+                    <button
+                      onClick={() => setIsEditingTime(!isEditingTime)}
+                      className="text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      {isEditingTime ? <X size={16} /> : <Edit size={16} />}
+                    </button>
+
                     <p className="text-white">
                       {formatDate(selectedVisit.startTime)} -{" "}
                       {formatTime(selectedVisit.startTime)}
                     </p>
                   </div>
+                  {isEditingTime ? (
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1">
+                          وقت البدء
+                        </label>
+                        <input
+                          type="datetime-local"
+                          value={editedStartTime}
+                          onChange={(e) => setEditedStartTime(e.target.value)}
+                          className="w-full px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1">
+                          وقت الانتهاء
+                        </label>
+                        <input
+                          type="datetime-local"
+                          value={editedEndTime}
+                          onChange={(e) => setEditedEndTime(e.target.value)}
+                          className="w-full px-3 py-2 rounded bg-slate-700 border border-slate-600 text-white"
+                          disabled={!selectedVisit.endTime} // تعطيل إذا لم يكن هناك وقت انتهاء
+                        />
+                      </div>
+                      <button
+                        onClick={saveTimeChanges}
+                        disabled={loading}
+                        className="mt-2 bg-blue-600 text-white py-1 px-3 rounded text-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
+                      >
+                        حفظ التعديلات
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-white">
+                        البدء: {formatDate(selectedVisit.startTime)} -{" "}
+                        {formatTime(selectedVisit.startTime)}
+                      </p>
+                      {selectedVisit.endTime && (
+                        <p className="text-white mt-1">
+                          الانتهاء: {formatDate(selectedVisit.endTime)} -{" "}
+                          {formatTime(selectedVisit.endTime)}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="bg-slate-700/50 p-4 rounded-lg">
