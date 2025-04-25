@@ -56,6 +56,7 @@ export const ClientManagement = () => {
   const [isEditingTime, setIsEditingTime] = useState(false);
   const [editedStartTime, setEditedStartTime] = useState("");
   const [editedEndTime, setEditedEndTime] = useState("");
+  const [isCalculated, setIsCalculated] = useState(false);
 
   const HOUR_RATE = 10;
   const HOUR_RATE_FIRST = 10;
@@ -552,18 +553,18 @@ export const ClientManagement = () => {
       setLoading(true);
       const currentTime = new Date().toISOString();
 
-      // If visit is paused, resume it first
+      // إذا كانت الزيارة متوقفة، استئنفها أولاً
       const visit = visits.find((v) => v.id === visitId);
       if (visit?.isPaused) {
         await resumeVisit(visitId);
       }
 
-      // Calculate total amount
+      // حساب المبلغ الإجمالي
       const totalAmount = calculateTotalAmount(
         visit || visits.find((v) => v.id === visitId)!
       );
 
-      // Update visit with end time and total amount
+      // تحديث الزيارة بوقت الانتهاء والمبلغ الإجمالي
       const { error } = await supabase
         .from("visits")
         .update({
@@ -574,9 +575,11 @@ export const ClientManagement = () => {
 
       if (error) throw error;
 
-      // Refresh visits
+      // تحديث الزيارات
       await fetchVisits();
-      setSelectedVisit(visits.find((v) => v.id === visitId) || null);
+
+      // تم حساب السعر، نغير الحالة لإظهار زر الإغلاق
+      setIsCalculated(true);
     } catch (err) {
       console.error("Error ending visit:", err);
       setError("حدث خطأ أثناء إنهاء الزيارة");
@@ -594,25 +597,42 @@ export const ClientManagement = () => {
       if (!product) throw new Error("Product not found");
 
       // Add product to visit
-      const { error } = await supabase.from("visit_products").insert([
-        {
-          visit_id: selectedVisit.id,
-          product_id: product.id,
-          price: product.price,
-          quantity: newProductQuantity,
-        },
-      ]);
+      const { data, error } = await supabase
+        .from("visit_products")
+        .insert([
+          {
+            visit_id: selectedVisit.id,
+            product_id: product.id,
+            price: product.price,
+            quantity: newProductQuantity,
+          },
+        ])
+        .select()
+        .single();
 
       if (error) throw error;
 
-      // Refresh visits
-      await fetchVisits();
-      setSelectedVisit(visits.find((v) => v.id === selectedVisit.id) || null);
+      // تحديث حالة الزيارة المحلية مباشرة دون انتظار fetchVisits
+      setSelectedVisit({
+        ...selectedVisit,
+        products: [
+          ...selectedVisit.products,
+          {
+            id: product.id,
+            name: product.name,
+            price: product.price,
+            quantity: newProductQuantity,
+          },
+        ],
+      });
 
       // Reset form
       setNewProductId("");
       setNewProductQuantity(1);
       setProductSearchTerm("");
+
+      // تحديث قائمة الزيارات في الخلفية
+      fetchVisits().catch(console.error);
     } catch (err) {
       console.error("Error adding product:", err);
       setError("حدث خطأ أثناء إضافة المنتج");
@@ -996,42 +1016,6 @@ export const ClientManagement = () => {
                     </div>
                   )}
                 </div>
-
-                <div className="bg-slate-700/50 p-4 rounded-lg">
-                  <h3 className="text-sm font-medium text-slate-300 mb-1">
-                    حالة الزيارة
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    {selectedVisit.endTime ? (
-                      <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm">
-                        منتهية
-                      </span>
-                    ) : selectedVisit.isPaused ? (
-                      <span className="bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full text-sm">
-                        متوقفة مؤقتاً
-                      </span>
-                    ) : (
-                      <span className="bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full text-sm">
-                        جارية
-                      </span>
-                    )}
-
-                    <div className="text-white flex-1 text-right">
-                      <span>
-                        المدة: {calculateVisitDuration(selectedVisit)} ساعة
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {!selectedVisit.endTime && (
-                  <div className="bg-slate-700/50 p-4 rounded-lg">
-                    <h3 className="text-sm font-medium text-slate-300 mb-3">
-                      إدارة الزيارة
-                    </h3>
-                  </div>
-                )}
-
                 <div className="bg-slate-700/50 p-4 rounded-lg">
                   <h3 className="text-sm font-medium text-slate-300 mb-3">
                     إضافة منتجات
@@ -1117,6 +1101,33 @@ export const ClientManagement = () => {
                   </div>
                 </div>
 
+                <div className="bg-slate-700/50 p-4 rounded-lg">
+                  <h3 className="text-sm font-medium text-slate-300 mb-1">
+                    حالة الزيارة
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    {selectedVisit.endTime ? (
+                      <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm">
+                        منتهية
+                      </span>
+                    ) : selectedVisit.isPaused ? (
+                      <span className="bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full text-sm">
+                        متوقفة مؤقتاً
+                      </span>
+                    ) : (
+                      <span className="bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full text-sm">
+                        جارية
+                      </span>
+                    )}
+
+                    <div className="text-white flex-1 text-right">
+                      <span>
+                        المدة: {calculateVisitDuration(selectedVisit)} ساعة
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
                 {selectedVisit.products.length > 0 && (
                   <div className="bg-slate-700/50 p-4 rounded-lg">
                     <h3 className="text-sm font-medium text-slate-300 mb-3">
@@ -1197,34 +1208,48 @@ export const ClientManagement = () => {
                 </div>
               </div>
               <div className="flex gap-3">
-                {selectedVisit.isPaused ? (
-                  <button
-                    onClick={() => resumeVisit(selectedVisit.id)}
-                    disabled={loading}
-                    className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors disabled:opacity-50"
-                  >
-                    <Play className="h-4 w-4" />
-                    استئناف
-                  </button>
+                {!isCalculated ? (
+                  <>
+                    {selectedVisit.isPaused ? (
+                      <button
+                        onClick={() => resumeVisit(selectedVisit.id)}
+                        disabled={loading}
+                        className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors disabled:opacity-50"
+                      >
+                        <Play className="h-4 w-4" />
+                        استئناف
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => pauseVisit(selectedVisit.id)}
+                        disabled={loading}
+                        className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-yellow-700 transition-colors disabled:opacity-50"
+                      >
+                        <Pause className="h-4 w-4" />
+                        إيقاف مؤقت
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => endVisit(selectedVisit.id)}
+                      disabled={loading}
+                      className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-red-700 transition-colors disabled:opacity-50"
+                    >
+                      <StopCircle className="h-4 w-4" />
+                      إنهاء الزيارة
+                    </button>
+                  </>
                 ) : (
                   <button
-                    onClick={() => pauseVisit(selectedVisit.id)}
-                    disabled={loading}
-                    className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-yellow-700 transition-colors disabled:opacity-50"
+                    onClick={() => {
+                      setSelectedVisit(null);
+                      setIsCalculated(false); // إعادة تعيين الحالة للمرة القادمة
+                    }}
+                    className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-green-700 transition-colors"
                   >
-                    <Pause className="h-4 w-4" />
-                    إيقاف مؤقت
+                    إغلاق
                   </button>
                 )}
-
-                <button
-                  onClick={() => endVisit(selectedVisit.id)}
-                  disabled={loading}
-                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-red-700 transition-colors disabled:opacity-50"
-                >
-                  <StopCircle className="h-4 w-4" />
-                  إنهاء الزيارة
-                </button>
               </div>
             </div>
           </div>
