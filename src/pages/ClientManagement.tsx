@@ -1,14 +1,12 @@
 import React, { useState, useEffect } from "react";
 import {
   Users,
-  ShoppingCart,
-  Clock,
+
   Plus,
   Minus,
   Pause,
   Play,
   StopCircle,
-  CreditCard,
   Trash2,
   X,
   Search,
