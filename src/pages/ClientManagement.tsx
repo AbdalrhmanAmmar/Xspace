@@ -10,12 +10,14 @@ import {
   X,
   Search,
   Edit,
+  ShoppingCart,
 } from "lucide-react";
 import type { Client, Visit } from "../types/client";
 import type { Product, CartItem } from "../types/product";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { Spinner } from "../components/Spinner";
+import { SaleModal } from "../components/SaleModal";
 
 interface ClientSubscription {
   id: string;
@@ -55,6 +57,8 @@ export const ClientManagement = () => {
     phone: "",
     job: "",
   });
+  const [isSaleModalOpen, setIsSaleModalOpen] = useState(false);
+
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProducts, setSelectedProducts] = useState<CartItem[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
@@ -781,6 +785,11 @@ export const ClientManagement = () => {
     visit.clientName.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const handleSaleComplete = (total: number) => {
+    alert(`تمت عملية البيع بنجاح! الإجمالي: ${total} جنيه`);
+    // يمكنك هنا إضافة أي منطق إضافي تحتاجه بعد اكتمال البيع
+  };
+
   const formatCurrency = (amount: number) => {
     return `${amount.toLocaleString("ar-EG")} جنيه`;
   };
@@ -804,13 +813,25 @@ export const ClientManagement = () => {
               <Users className="h-5 w-5" />
               تسجيل زيارة
             </h2>
-            <button
-              onClick={() => setShowDeleteAllModal(true)}
-              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
-            >
-              <Trash2 className="h-4 w-4" />
-              مسح الكل
-            </button>
+
+            <div className="flex justify-between">
+              <button
+                onClick={() => setIsSaleModalOpen(true)}
+                className="bg-purple-500/20 text-purple-400 gap-4 px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+              >
+                <ShoppingCart className="h-4 w-4" />
+                عملية بيع
+              </button>
+
+              <button
+                onClick={() => setShowDeleteAllModal(true)}
+                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                مسح الكل
+              </button>
+            </div>
+
             <div className="flex gap-4 mt-3">
               <div className="bg-blue-500/20 px-3 py-1 rounded-full flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-blue-500"></span>
@@ -1395,6 +1416,12 @@ export const ClientManagement = () => {
           </div>
         )}
       </div>
+      <SaleModal
+        isOpen={isSaleModalOpen}
+        onClose={() => setIsSaleModalOpen(false)}
+        products={products}
+        onSaleComplete={handleSaleComplete}
+      />
       {showDeleteAllModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-slate-800 rounded-xl p-6 w-full max-w-md border border-slate-700">
