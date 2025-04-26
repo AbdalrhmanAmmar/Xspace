@@ -749,45 +749,19 @@ export const ClientManagement = () => {
   };
 
   const deleteAllVisits = async () => {
-    if (!user) {
-      setDeleteError("يجب تسجيل الدخول أولاً");
-      return;
-    }
-
     try {
       setIsDeleting(true);
-      setDeleteError("");
 
-      // التحقق من كلمة المرور
-      const { error: authError } = await supabase.auth.signInWithPassword({
-        email: user.email || "",
-        password: password,
-      });
+      // استدعاء الدالة المخزنة
+      const { error } = await supabase.rpc("delete_all_visits");
 
-      if (authError) {
-        throw new Error("كلمة المرور غير صحيحة");
-      }
+      if (error) throw error;
 
-      // حذف جميع سجلات الزيارات المرتبطة
-      await supabase.from("visit_products").delete().neq("id", 0);
-      await supabase.from("visit_pauses").delete().neq("id", 0);
-
-      // حذف جميع الزيارات
-      const { error: deleteError } = await supabase
-        .from("visits")
-        .delete()
-        .neq("id", 0);
-
-      if (deleteError) throw deleteError;
-
-      // تحديث الحالة وإغلاق المودال
       setVisits([]);
       setShowDeleteAllModal(false);
-      setPassword("");
-      alert("تم حذف جميع الزيارات بنجاح");
-    } catch (err: any) {
-      console.error("Error deleting all visits:", err);
-      setDeleteError(err.message || "حدث خطأ أثناء حذف الزيارات");
+      alert("تم الحذف بنجاح");
+    } catch (err) {
+      alert("حدث خطأ: " + err.message);
     } finally {
       setIsDeleting(false);
     }
@@ -1364,58 +1338,39 @@ export const ClientManagement = () => {
                 تأكيد حذف جميع الزيارات
               </h3>
               <button
-                onClick={() => {
-                  setShowDeleteAllModal(false);
-                  setPassword("");
-                  setDeleteError("");
-                }}
+                onClick={() => setShowDeleteAllModal(false)}
                 className="text-slate-400 hover:text-white"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <p className="text-slate-300 mb-4">
-              سيتم حذف جميع سجلات الزيارات بشكل دائم. هذه العملية لا يمكن
-              التراجع عنها.
+            <p className="text-slate-300 mb-6">
+              هل أنت متأكد من رغبتك في حذف{" "}
+              <span className="font-bold text-white">جميع الزيارات</span>؟<br />
+              لا يمكن التراجع عن هذه العملية.
             </p>
-
-            <div className="mb-4">
-              <label className="block text-sm text-slate-400 mb-2">
-                أدخل كلمة المرور للتأكيد:
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-                placeholder="كلمة المرور"
-                autoFocus
-              />
-            </div>
-
-            {deleteError && (
-              <div className="text-red-400 text-sm mb-4">{deleteError}</div>
-            )}
 
             <div className="flex justify-end gap-3">
               <button
-                onClick={() => {
-                  setShowDeleteAllModal(false);
-                  setPassword("");
-                  setDeleteError("");
-                }}
+                onClick={() => setShowDeleteAllModal(false)}
                 className="px-4 py-2 text-white bg-slate-600 hover:bg-slate-700 rounded-lg"
               >
                 إلغاء
               </button>
               <button
                 onClick={deleteAllVisits}
-                disabled={!password || isDeleting}
+                disabled={isDeleting}
                 className="px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50 flex items-center gap-2"
               >
-                {isDeleting ? "جاري الحذف..." : "تأكيد الحذف"}
-                {isDeleting && <Spinner />}
+                {isDeleting ? (
+                  <>
+                    جاري الحذف...
+                    <Spinner />
+                  </>
+                ) : (
+                  "نعم، احذف الكل"
+                )}
               </button>
             </div>
           </div>
