@@ -41,7 +41,6 @@ export const ClientManagement = () => {
     name: "",
     phone: "",
     job: "",
-    age: "",
   });
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProducts, setSelectedProducts] = useState<CartItem[]>([]);
@@ -200,7 +199,6 @@ export const ClientManagement = () => {
             name: client.name,
             phone: client.phone || undefined,
             job: client.job || undefined,
-            age: client.age || undefined,
             lastVisit: new Date(client.last_visit),
             createdAt: new Date(client.created_at),
             isNewClient: client.is_new_client,
@@ -319,7 +317,6 @@ export const ClientManagement = () => {
           name: data.name,
           phone: data.phone || "",
           job: data.job || "",
-          age: data.age?.toString() || "",
         });
       } else {
         setClientStatus("new");
@@ -352,7 +349,6 @@ export const ClientManagement = () => {
               name: formData.name,
               phone: formData.phone || null,
               job: formData.job || null,
-              age: formData.age ? parseInt(formData.age) : null,
               is_new_client: true,
               last_visit: currentDate.toISOString(),
             },
@@ -379,7 +375,6 @@ export const ClientManagement = () => {
             last_visit: currentDate.toISOString(),
             phone: formData.phone || null,
             job: formData.job || null,
-            age: formData.age ? parseInt(formData.age) : null,
           })
           .eq("id", clientId);
 
@@ -414,7 +409,7 @@ export const ClientManagement = () => {
 
       setVisits((prev) => [visitObj, ...prev]);
       setSelectedProducts([]);
-      setFormData({ name: "", phone: "", job: "", age: "" });
+      setFormData({ name: "", phone: "", job: "" });
       setClientStatus(null);
 
       // Refresh data
@@ -876,23 +871,6 @@ export const ClientManagement = () => {
                       }
                       className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="أدخل رقم الهاتف"
-                      dir="rtl"
-                      disabled={loading}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-blue-200 mb-2">
-                      العمر
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.age}
-                      onChange={(e) =>
-                        setFormData({ ...formData, age: e.target.value })
-                      }
-                      className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="أدخل العمر"
                       dir="rtl"
                       disabled={loading}
                     />
