@@ -31,6 +31,7 @@ export const Navbar = () => {
     { path: "/subscriptions", icon: CreditCard, label: "الاشتراكات" },
     { path: "/reservations", icon: Calendar, label: "الحجوزات" },
     { path: "/products", icon: Package, label: "المنتجات" },
+    { path: "/Profits", icon: Package, label: "الارباح" },
   ];
 
   return (

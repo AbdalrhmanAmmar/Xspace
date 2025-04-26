@@ -1,16 +1,17 @@
-import React from 'react';
-import { HashRouter as Router, Routes, Route } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
-import { ProductProvider } from './contexts/ProductContext';
-import { ProtectedRoute } from './components/ProtectedRoute';
-import { Navbar } from './components/Navbar';
-import { Login } from './pages/Login';
-import { Home } from './pages/Home';
-import { ClientManagement } from './pages/ClientManagement';
-import { ClientsList } from './pages/ClientsList';
-import { Subscriptions } from './pages/Subscriptions';
-import { Reservations } from './pages/Reservations';
-import { Products } from './pages/Products';
+import React from "react";
+import { HashRouter as Router, Routes, Route } from "react-router-dom";
+import { AuthProvider } from "./contexts/AuthContext";
+import { ProductProvider } from "./contexts/ProductContext";
+import { ProtectedRoute } from "./components/ProtectedRoute";
+import { Navbar } from "./components/Navbar";
+import { Login } from "./pages/Login";
+import { Home } from "./pages/Home";
+import { ClientManagement } from "./pages/ClientManagement";
+import { ClientsList } from "./pages/ClientsList";
+import { Subscriptions } from "./pages/Subscriptions";
+import { Reservations } from "./pages/Reservations";
+import { Products } from "./pages/Products";
+import Profits from "./pages/Profits";
 
 function App() {
   return (
@@ -81,6 +82,17 @@ function App() {
                   <>
                     <Navbar />
                     <Products />
+                  </>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/Profits"
+              element={
+                <ProtectedRoute>
+                  <>
+                    <Navbar />
+                    <Profits />
                   </>
                 </ProtectedRoute>
               }

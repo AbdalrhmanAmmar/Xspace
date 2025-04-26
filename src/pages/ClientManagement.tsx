@@ -23,12 +23,25 @@ interface ClientSubscription {
   endDate: Date;
   remainingDays: number;
 }
+interface Visit {
+  id: string;
+  clientName: string;
+  startTime: Date;
+  endTime?: Date;
+  products: CartItem[];
+  totalAmount?: number;
+  isPaused: boolean;
+  pauseHistory: Pause[];
+  numberOfPeople?: number; // أضف هذا الحقل
+}
 
 interface ClientWithSubscription extends Client {
   subscription?: ClientSubscription;
 }
 
 export const ClientManagement = () => {
+  const [numberOfPeople, setNumberOfPeople] = useState(1);
+
   const [clients, setClients] = useState<ClientWithSubscription[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -274,6 +287,7 @@ export const ClientManagement = () => {
           })) || [],
         totalAmount: visit.total_amount,
         isPaused: visit.is_paused,
+        numberOfPeople: visit.number_of_people || 1,
         pauseHistory:
           visit.visit_pauses?.map((pause: any) => ({
             startTime: new Date(pause.start_time),
@@ -389,6 +403,7 @@ export const ClientManagement = () => {
             client_id: clientId,
             start_time: currentDate.toISOString(),
             is_paused: false,
+            number_of_people: numberOfPeople,
           },
         ])
         .select()
@@ -404,6 +419,7 @@ export const ClientManagement = () => {
         startTime: currentDate,
         products: [],
         isPaused: false,
+        numberOfPeople: numberOfPeople,
         pauseHistory: [],
       };
 
@@ -411,6 +427,7 @@ export const ClientManagement = () => {
       setSelectedProducts([]);
       setFormData({ name: "", phone: "", job: "" });
       setClientStatus(null);
+      setNumberOfPeople(1);
 
       // Refresh data
       await Promise.all([fetchClients(), fetchVisits()]);
@@ -465,10 +482,13 @@ export const ClientManagement = () => {
     return remainingMinutes >= 15 ? fullHours + 1 : fullHours;
   };
 
-  const calculateTimeCost = (hours: number): number => {
+  const calculateTimeCost = (
+    hours: number,
+    numberOfPeople: number = 1
+  ): number => {
     if (hours === 0) return 0;
-    if (hours === 1) return HOUR_RATE_FIRST;
-    return HOUR_RATE_FIRST + (hours - 1) * HOUR_RATE_NEXT;
+    if (hours === 1) return HOUR_RATE_FIRST * numberOfPeople;
+    return (HOUR_RATE_FIRST + (hours - 1) * HOUR_RATE_NEXT) * numberOfPeople;
   };
 
   const calculateTotalAmount = (visit: Visit): number => {
@@ -477,7 +497,7 @@ export const ClientManagement = () => {
       0
     );
     const hours = calculateVisitDuration(visit);
-    const timeTotal = calculateTimeCost(hours);
+    const timeTotal = calculateTimeCost(hours, visit.numberOfPeople || 1);
     return productsTotal + timeTotal;
   };
 
@@ -570,33 +590,28 @@ export const ClientManagement = () => {
     try {
       setLoading(true);
       const currentTime = new Date().toISOString();
-
-      // إذا كانت الزيارة متوقفة، استئنفها أولاً
       const visit = visits.find((v) => v.id === visitId);
+
       if (visit?.isPaused) {
         await resumeVisit(visitId);
       }
 
-      // حساب المبلغ الإجمالي
       const totalAmount = calculateTotalAmount(
         visit || visits.find((v) => v.id === visitId)!
       );
 
-      // تحديث الزيارة بوقت الانتهاء والمبلغ الإجمالي
       const { error } = await supabase
         .from("visits")
         .update({
           end_time: currentTime,
           total_amount: totalAmount,
+          number_of_people: visit?.numberOfPeople || 1, // تأكد من حفظ عدد الأشخاص
         })
         .eq("id", visitId);
 
       if (error) throw error;
 
-      // تحديث الزيارات
       await fetchVisits();
-
-      // تم حساب السعر، نغير الحالة لإظهار زر الإغلاق
       setIsCalculated(true);
     } catch (err) {
       console.error("Error ending visit:", err);
@@ -895,6 +910,34 @@ export const ClientManagement = () => {
                 </>
               )}
 
+              <div>
+                <label className="block text-sm font-medium text-blue-200 mb-2">
+                  عدد الأشخاص
+                </label>
+                <div className="flex items-center gap-2 bg-slate-800 rounded-lg border border-slate-700 px-3 w-full">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setNumberOfPeople((prev) => Math.max(1, prev - 1))
+                    }
+                    className="text-slate-400 hover:text-white"
+                    disabled={numberOfPeople <= 1}
+                  >
+                    <Minus className="h-4 w-4" />
+                  </button>
+                  <span className="text-white flex-1 text-center">
+                    {numberOfPeople}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setNumberOfPeople((prev) => prev + 1)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
               <button
                 type="submit"
                 disabled={loading}
@@ -1000,6 +1043,45 @@ export const ClientManagement = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-slate-700/50 p-4 rounded-lg">
                     <h3 className="text-sm font-medium text-slate-300 mb-1">
+                      عدد الأشخاص
+                    </h3>
+                    <div className="flex items-center gap-2 mt-2">
+                      <button
+                        onClick={() => {
+                          const newNum = Math.max(
+                            1,
+                            (selectedVisit.numberOfPeople || 1) - 1
+                          );
+                          setSelectedVisit({
+                            ...selectedVisit,
+                            numberOfPeople: newNum,
+                          });
+                        }}
+                        className="text-slate-400 hover:text-white p-1"
+                      >
+                        <Minus className="h-4 w-4" />
+                      </button>
+                      <span className="text-white px-2">
+                        {selectedVisit.numberOfPeople || 1}
+                      </span>
+                      <button
+                        onClick={() => {
+                          const newNum =
+                            (selectedVisit.numberOfPeople || 1) + 1;
+                          setSelectedVisit({
+                            ...selectedVisit,
+                            numberOfPeople: newNum,
+                          });
+                        }}
+                        className="text-slate-400 hover:text-white p-1"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-700/50 p-4 rounded-lg">
+                    <h3 className="text-sm font-medium text-slate-300 mb-1">
                       العميل
                     </h3>
                     <p className="text-white">{selectedVisit.clientName}</p>
@@ -1056,6 +1138,8 @@ export const ClientManagement = () => {
                     </div>
                   ) : (
                     <div>
+                      <p className="text-white">عدد الاشخاص</p>
+                      <span className="text-white">{numberOfPeople}</span>
                       <p className="text-white">
                         البدء: {formatDate(selectedVisit.startTime)} -{" "}
                         {formatTime(selectedVisit.startTime)}
@@ -1240,14 +1324,17 @@ export const ClientManagement = () => {
                       <span>مدة الزيارة:</span>
                       <span>
                         {calculateVisitDuration(selectedVisit)} ساعة ×{" "}
-                        {formatCurrency(HOUR_RATE)}
+                        {selectedVisit.numberOfPeople || 1} أشخاص
                       </span>
                     </div>
                     <div className="flex justify-between text-white">
                       <span>تكلفة الوقت:</span>
                       <span>
                         {formatCurrency(
-                          calculateVisitDuration(selectedVisit) * HOUR_RATE
+                          calculateTimeCost(
+                            calculateVisitDuration(selectedVisit),
+                            selectedVisit.numberOfPeople || 1
+                          )
                         )}
                       </span>
                     </div>
