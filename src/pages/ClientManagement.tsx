@@ -837,7 +837,12 @@ export const ClientManagement = () => {
                 <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                 <span className="text-xs text-blue-300">
                   جارية:{" "}
-                  {visits.filter((v) => !v.endTime && !v.isPaused).length}
+                  {visits
+                    .filter((v) => !v.endTime && !v.isPaused)
+                    .reduce(
+                      (sum, visit) => sum + (visit.numberOfPeople || 1),
+                      0
+                    )}
                 </span>
               </div>
               <div className="bg-yellow-500/20 px-3 py-1 rounded-full flex items-center gap-1">
