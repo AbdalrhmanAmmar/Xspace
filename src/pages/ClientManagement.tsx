@@ -854,7 +854,15 @@ export const ClientManagement = () => {
               <div className="bg-green-500/20 px-3 py-1 rounded-full flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-green-500"></span>
                 <span className="text-xs text-green-300">
-                  منتهية: {visits.filter((v) => v.endTime).length}
+                  منتهية:{" "}
+                  {
+                    visits
+                      .filter((v) => v.endTime) // الفلترة للزيارات المنتهية فقط
+                      .reduce(
+                        (sum, visit) => sum + (visit.numberOfPeople || 1),
+                        0
+                      ) // جمع عدد الأشخاص
+                  }
                 </span>
               </div>
             </div>
