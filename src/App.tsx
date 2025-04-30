@@ -1,4 +1,3 @@
-import React from "react";
 import { HashRouter as Router, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProductProvider } from "./contexts/ProductContext";
@@ -12,6 +11,8 @@ import { Subscriptions } from "./pages/Subscriptions";
 import { Reservations } from "./pages/Reservations";
 import { Products } from "./pages/Products";
 import Profits from "./pages/Profits";
+import Maintenances from "./pages/Maintenances";
+import Poot from "./pages/Poot";
 
 function App() {
   return (
@@ -93,6 +94,17 @@ function App() {
                   <>
                     <Navbar />
                     <Profits />
+                  </>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/maintenances"
+              element={
+                <ProtectedRoute>
+                  <>
+                    <Navbar />
+                    <Maintenances />
                   </>
                 </ProtectedRoute>
               }

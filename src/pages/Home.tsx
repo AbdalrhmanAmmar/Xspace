@@ -1,6 +1,14 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Users, Calendar, Package, UserPlus, CreditCard } from "lucide-react";
+import {
+  Users,
+  Calendar,
+  Package,
+  UserPlus,
+  CreditCard,
+  DollarSign,
+  Construction,
+} from "lucide-react";
 
 export const Home = () => {
   return (
@@ -83,12 +91,24 @@ export const Home = () => {
             to="/profits"
             className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
           >
-            <Package className="h-12 w-12 text-primary-600 dark:text-primary-400 mb-4 group-hover:scale-110 transition-transform" />
+            <DollarSign className="h-12 w-12 text-primary-600 dark:text-primary-400 mb-4 group-hover:scale-110 transition-transform" />
             <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">
               الارباح
             </h2>
             <p className="text-slate-600 dark:text-slate-300">
               ارباح المنتجات والزيارات
+            </p>
+          </Link>
+          <Link
+            to="/Maintenances"
+            className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
+          >
+            <Construction className="h-12 w-12 text-primary-600 dark:text-primary-400 mb-4 group-hover:scale-110 transition-transform" />
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">
+              الصيانه
+            </h2>
+            <p className="text-slate-600 dark:text-slate-300">
+              حساب تكاليف الصيانه
             </p>
           </Link>
         </div>
