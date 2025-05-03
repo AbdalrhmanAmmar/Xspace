@@ -439,9 +439,7 @@ export const Products = () => {
                             : "text-gray-500 cursor-not-allowed"
                         } rounded-lg transition-colors`}
                         disabled={product.quantity === 0 || loading}
-                      >
-                        <ShoppingCart className="h-5 w-5" />
-                      </button>
+                      ></button>
                     </div>
                   </div>
                 ))
