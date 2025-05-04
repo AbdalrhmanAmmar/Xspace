@@ -1,36 +1,42 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, Trash2, X, Settings, Check } from 'lucide-react';
-import type { Reservation } from '../types/client';
-import { HALLS } from '../types/client';
-import { supabase } from '../lib/supabase';
-import { useAuth } from '../contexts/AuthContext';
+import React, { useState, useEffect } from "react";
+import { Trash2, X, Settings, Check } from "lucide-react";
+import { DbReservation, HALLS } from "../types/client";
+import { supabase } from "../lib/supabase";
+import { useAuth } from "../contexts/AuthContext";
 
 interface HallPrices {
   largeHall: number;
   smallHall: number;
+  normalVisit: number; // Added for normal visit price
 }
 
 export const Reservations = () => {
-  const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [reservations, setReservations] = useState<DbReservation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const { user } = useAuth();
+  const [selectedType, setSelectedType] = useState<
+    "large" | "small" | "normal"
+  >("large"); // New state for visit type
   const [formData, setFormData] = useState({
-    clientName: '',
-    date: '',
-    time: '',
-    durationRange: '60',
+    clientName: "",
+    date: "",
+    time: "",
+    durationRange: "60",
     hallName: HALLS.LARGE,
-    deposit: '',
+    deposit: "",
+    visitType: "large", // Added to formData
   });
   const [prices, setPrices] = useState<HallPrices>({
     largeHall: 90,
     smallHall: 45,
+    normalVisit: 30, // Default price for normal visit (configurable)
   });
   const [priceFormData, setPriceFormData] = useState<HallPrices>({
     largeHall: 90,
     smallHall: 45,
+    normalVisit: 30,
   });
 
   useEffect(() => {
@@ -43,17 +49,20 @@ export const Reservations = () => {
   const fetchPrices = async () => {
     try {
       const { data, error } = await supabase
-        .from('hall_prices')
-        .select('*')
+        .from("hall_prices")
+        .select("*")
         .single();
 
       if (error) {
-        if (error.code === 'PGRST116') {
+        if (error.code === "PGRST116") {
           // No prices found, create default prices
-          await supabase.from('hall_prices').insert([{
-            large_hall_price: 90,
-            small_hall_price: 45,
-          }]);
+          await supabase.from("hall_prices").insert([
+            {
+              large_hall_price: 90,
+              small_hall_price: 45,
+              normal_visit_price: 30, // Add normal visit price to DB
+            },
+          ]);
         } else {
           throw error;
         }
@@ -61,15 +70,17 @@ export const Reservations = () => {
         setPrices({
           largeHall: data.large_hall_price,
           smallHall: data.small_hall_price,
+          normalVisit: data.normal_visit_price || 30, // Fallback to default
         });
         setPriceFormData({
           largeHall: data.large_hall_price,
           smallHall: data.small_hall_price,
+          normalVisit: data.normal_visit_price || 30,
         });
       }
     } catch (err) {
-      console.error('Error fetching hall prices:', err);
-      setError('حدث خطأ أثناء تحميل أسعار القاعات');
+      console.error("Error fetching hall prices:", err);
+      setError("حدث خطأ أثناء تحميل أسعار القاعات");
     }
   };
 
@@ -77,35 +88,38 @@ export const Reservations = () => {
     try {
       setLoading(true);
       const { data, error } = await supabase
-        .from('reservations')
-        .select(`
+        .from("reservations")
+        .select(
+          `
           *,
           clients (
             name
           )
-        `)
-        .order('start_time', { ascending: false });
+        `
+        )
+        .order("start_time", { ascending: false });
 
       if (error) throw error;
 
-      const formattedReservations = (data || []).map(res => ({
+      const formattedReservations = (data || []).map((res) => ({
         id: res.id,
-        clientName: res.clients?.name || '',
-        date: new Date(res.start_time).toISOString().split('T')[0],
-        time: new Date(res.start_time).toTimeString().split(' ')[0].slice(0, 5),
+        clientName: res.clients?.name || "",
+        date: new Date(res.start_time).toISOString().split("T")[0],
+        time: new Date(res.start_time).toTimeString().split(" ")[0].slice(0, 5),
         duration: {
           hours: Math.floor(res.duration_minutes / 60),
-          minutes: res.duration_minutes % 60
+          minutes: res.duration_minutes % 60,
         },
         hallName: res.hall_name,
         deposit: res.deposit_amount,
         totalPrice: res.total_price,
+        visitType: res.visit_type || "large", // Include visit type
       }));
 
       setReservations(formattedReservations);
     } catch (err) {
-      console.error('Error fetching reservations:', err);
-      setError('حدث خطأ أثناء تحميل الحجوزات');
+      console.error("Error fetching reservations:", err);
+      setError("حدث خطأ أثناء تحميل الحجوزات");
     } finally {
       setLoading(false);
     }
@@ -114,7 +128,7 @@ export const Reservations = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
-      setError('يجب تسجيل الدخول أولاً');
+      setError("يجب تسجيل الدخول أولاً");
       return;
     }
 
@@ -124,24 +138,25 @@ export const Reservations = () => {
 
       // Create or get client
       const { data: clientData, error: clientError } = await supabase
-        .from('clients')
-        .insert([{
-          name: formData.clientName,
-          is_new_client: true,
-          last_visit: new Date().toISOString()
-        }])
+        .from("clients")
+        .insert([
+          {
+            name: formData.clientName,
+            is_new_client: true,
+            last_visit: new Date().toISOString(),
+          },
+        ])
         .select()
         .single();
 
-      if (clientError && clientError.code !== '23505') throw clientError;
+      if (clientError && clientError.code !== "23505") throw clientError;
 
-      // If client already exists, get their ID
       let clientId = clientData?.id;
       if (!clientId) {
         const { data: existingClient, error: searchError } = await supabase
-          .from('clients')
-          .select('id')
-          .eq('name', formData.clientName)
+          .from("clients")
+          .select("id")
+          .eq("name", formData.clientName)
           .single();
 
         if (searchError) throw searchError;
@@ -151,64 +166,89 @@ export const Reservations = () => {
       // Calculate reservation details
       const startDateTime = new Date(`${formData.date}T${formData.time}`);
       const durationInMinutes = parseInt(formData.durationRange);
-      const endDateTime = new Date(startDateTime.getTime() + durationInMinutes * 60000);
-      const hallPrice = formData.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall;
-      // Calculate price based on minutes
+      const endDateTime = new Date(
+        startDateTime.getTime() + durationInMinutes * 60000
+      );
+
+      // Determine price based on visit type
+      let hallPrice: number;
+      let hallName: string;
+      switch (formData.visitType) {
+        case "large":
+          hallPrice = prices.largeHall;
+          hallName = HALLS.LARGE;
+          break;
+        case "small":
+          hallPrice = prices.smallHall;
+          hallName = HALLS.SMALL;
+          break;
+        case "normal":
+          hallPrice = prices.normalVisit;
+          hallName = "زيارة عادية"; // Adjust as needed
+          break;
+        default:
+          hallPrice = prices.largeHall;
+          hallName = HALLS.LARGE;
+      }
+
       const totalPrice = (hallPrice / 60) * durationInMinutes;
 
       // Create reservation
       const { error: reservationError } = await supabase
-        .from('reservations')
-        .insert([{
-          client_id: clientId,
-          hall_name: formData.hallName,
-          start_time: startDateTime.toISOString(),
-          end_time: endDateTime.toISOString(),
-          duration_minutes: durationInMinutes,
-          total_price: totalPrice,
-          deposit_amount: Number(formData.deposit) || 0,
-          status: 'active'
-        }]);
+        .from("reservations")
+        .insert([
+          {
+            client_id: clientId,
+            hall_name: hallName,
+            start_time: startDateTime.toISOString(),
+            end_time: endDateTime.toISOString(),
+            duration_minutes: durationInMinutes,
+            total_price: totalPrice,
+            deposit_amount: Number(formData.deposit) || 0,
+            status: "active",
+            visit_type: formData.visitType, // Save visit type
+          },
+        ]);
 
       if (reservationError) throw reservationError;
 
-      // Refresh and reset
       await fetchReservations();
       setFormData({
-        clientName: '',
-        date: '',
-        time: '',
-        durationRange: '60',
+        clientName: "",
+        date: "",
+        time: "",
+        durationRange: "60",
         hallName: HALLS.LARGE,
-        deposit: '',
+        deposit: "",
+        visitType: "large",
       });
-      
+      setSelectedType("large");
     } catch (err: any) {
-      console.error('Error saving reservation:', err);
-      setError(err.message || 'حدث خطأ أثناء حفظ الحجز');
+      console.error("Error saving reservation:", err);
+      setError(err.message || "حدث خطأ أثناء حفظ الحجز");
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('هل أنت متأكد من حذف هذا الحجز؟')) return;
+    if (!confirm("هل أنت متأكد من حذف هذا الحجز؟")) return;
 
     try {
       setLoading(true);
       setError(null);
 
       const { error } = await supabase
-        .from('reservations')
+        .from("reservations")
         .delete()
-        .eq('id', id);
+        .eq("id", id);
 
       if (error) throw error;
 
       await fetchReservations();
     } catch (err: any) {
-      console.error('Error deleting reservation:', err);
-      setError(err.message || 'حدث خطأ أثناء حذف الحجز');
+      console.error("Error deleting reservation:", err);
+      setError(err.message || "حدث خطأ أثناء حذف الحجز");
     } finally {
       setLoading(false);
     }
@@ -221,46 +261,62 @@ export const Reservations = () => {
       setError(null);
 
       const { error } = await supabase
-        .from('hall_prices')
+        .from("hall_prices")
         .update({
           large_hall_price: priceFormData.largeHall,
           small_hall_price: priceFormData.smallHall,
+          normal_visit_price: priceFormData.normalVisit,
         })
-        .eq('id', 1);
+        .eq("id", 1);
 
       if (error) throw error;
 
       setPrices(priceFormData);
       setShowSettings(false);
     } catch (err: any) {
-      console.error('Error saving prices:', err);
-      setError(err.message || 'حدث خطأ أثناء حفظ الأسعار');
+      console.error("Error saving prices:", err);
+      setError(err.message || "حدث خطأ أثناء حفظ الأسعار");
     } finally {
       setLoading(false);
     }
   };
 
   const formatCurrency = (amount: number) => {
-    return `${amount.toLocaleString('ar-EG')} جنيه`;
+    return `${amount.toLocaleString("ar-EG")} جنيه`;
   };
 
   const formatDurationDisplay = (minutes: number) => {
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
-    return `${hours} ساعة ${mins > 0 ? `و ${mins} دقيقة` : ''}`;
+    return `${hours} ساعة ${mins > 0 ? `و ${mins} دقيقة` : ""}`;
   };
 
-  const calculateTotalPrice = (hallName: typeof HALLS.LARGE | typeof HALLS.SMALL, durationInMinutes: number) => {
-    const hallPrice = hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall;
-    // Calculate price based on minutes
+  const calculateTotalPrice = (
+    visitType: "large" | "small" | "normal",
+    durationInMinutes: number
+  ) => {
+    let hallPrice: number;
+    switch (visitType) {
+      case "large":
+        hallPrice = prices.largeHall;
+        break;
+      case "small":
+        hallPrice = prices.smallHall;
+        break;
+      case "normal":
+        hallPrice = prices.normalVisit;
+        break;
+      default:
+        hallPrice = prices.largeHall;
+    }
     return (hallPrice / 60) * durationInMinutes;
   };
 
   const getDurationColor = (minutes: number) => {
     const percentage = (minutes / 480) * 100;
-    if (percentage <= 33) return '#22c55e'; // green-500
-    if (percentage <= 66) return '#eab308'; // yellow-500
-    return '#ef4444'; // red-500
+    if (percentage <= 33) return "#22c55e"; // green-500
+    if (percentage <= 66) return "#eab308"; // yellow-500
+    return "#ef4444"; // red-500
   };
 
   if (!user) {
@@ -296,7 +352,9 @@ export const Reservations = () => {
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
             <div className="bg-slate-800 rounded-xl p-6 w-full max-w-md border border-slate-700">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-semibold text-white">إعدادات أسعار القاعات</h2>
+                <h2 className="text-xl font-semibold text-white">
+                  إعدادات أسعار القاعات
+                </h2>
                 <button
                   onClick={() => {
                     setShowSettings(false);
@@ -315,7 +373,12 @@ export const Reservations = () => {
                   <input
                     type="number"
                     value={priceFormData.largeHall}
-                    onChange={(e) => setPriceFormData({ ...priceFormData, largeHall: Number(e.target.value) })}
+                    onChange={(e) =>
+                      setPriceFormData({
+                        ...priceFormData,
+                        largeHall: Number(e.target.value),
+                      })
+                    }
                     className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     min="0"
                     required
@@ -329,7 +392,31 @@ export const Reservations = () => {
                   <input
                     type="number"
                     value={priceFormData.smallHall}
-                    onChange={(e) => setPriceFormData({ ...priceFormData, smallHall: Number(e.target.value) })}
+                    onChange={(e) =>
+                      setPriceFormData({
+                        ...priceFormData,
+                        smallHall: Number(e.target.value),
+                      })
+                    }
+                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    min="0"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    سعر الزيارة العادية (بالساعة)
+                  </label>
+                  <input
+                    type="number"
+                    value={priceFormData.normalVisit}
+                    onChange={(e) =>
+                      setPriceFormData({
+                        ...priceFormData,
+                        normalVisit: Number(e.target.value),
+                      })
+                    }
                     className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     min="0"
                     required
@@ -342,7 +429,7 @@ export const Reservations = () => {
                   disabled={loading}
                 >
                   <Check className="h-5 w-5" />
-                  {loading ? 'جاري الحفظ...' : 'حفظ الأسعار'}
+                  {loading ? "جاري الحفظ..." : "حفظ الأسعار"}
                 </button>
               </form>
             </div>
@@ -360,7 +447,9 @@ export const Reservations = () => {
               <input
                 type="text"
                 value={formData.clientName}
-                onChange={(e) => setFormData({ ...formData, clientName: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, clientName: e.target.value })
+                }
                 className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="أدخل اسم العميل"
                 dir="rtl"
@@ -377,7 +466,9 @@ export const Reservations = () => {
                 <input
                   type="date"
                   value={formData.date}
-                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, date: e.target.value })
+                  }
                   className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                   disabled={loading}
@@ -391,8 +482,10 @@ export const Reservations = () => {
                 <input
                   type="time"
                   value={formData.time}
-                  onChange={(e) => setFormData({ ...formData, time: e.target.value })}
-                  className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  onChange={(e) =>
+                    setFormData({ ...formData, time: e.target.value })
+                  }
+                  className="w-full px-4 py-3 rounded-lg bg-slate-800 border border slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                   disabled={loading}
                 />
@@ -407,14 +500,24 @@ export const Reservations = () => {
                 <input
                   type="range"
                   value={formData.durationRange}
-                  onChange={(e) => setFormData({ ...formData, durationRange: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, durationRange: e.target.value })
+                  }
                   className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
                   min="15"
                   max="480"
                   step="15"
                   disabled={loading}
                   style={{
-                    background: `linear-gradient(to left, ${getDurationColor(parseInt(formData.durationRange))} 0%, ${getDurationColor(parseInt(formData.durationRange))} ${(parseInt(formData.durationRange) / 480) * 100}%, #334155 ${(parseInt(formData.durationRange) / 480) * 100}%, #334155 100%)`
+                    background: `linear-gradient(to left, ${getDurationColor(
+                      parseInt(formData.durationRange)
+                    )} 0%, ${getDurationColor(
+                      parseInt(formData.durationRange)
+                    )} ${
+                      (parseInt(formData.durationRange) / 480) * 100
+                    }%, #334155 ${
+                      (parseInt(formData.durationRange) / 480) * 100
+                    }%, #334155 100%)`,
                   }}
                 />
                 <div className="absolute -bottom-6 left-0 right-0 flex justify-between text-sm text-blue-200">
@@ -424,21 +527,71 @@ export const Reservations = () => {
               </div>
             </div>
 
-            <div>
+            <div className="mb-4">
               <label className="block text-sm font-medium text-blue-200 mb-2">
-                القاعة
+                اختار نوع الزيارة
               </label>
-              <select
-                value={formData.hallName}
-                onChange={(e) => setFormData({ ...formData, hallName: e.target.value as typeof HALLS.LARGE | typeof HALLS.SMALL })}
-                className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                dir="rtl"
-                required
-                disabled={loading}
-              >
-                <option value={HALLS.LARGE}>{HALLS.LARGE} - {formatCurrency(prices.largeHall)}/ساعة</option>
-                <option value={HALLS.SMALL}>{HALLS.SMALL} - {formatCurrency(prices.smallHall)}/ساعة</option>
-              </select>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedType("large");
+                    setFormData({
+                      ...formData,
+                      visitType: "large",
+                      hallName: HALLS.LARGE,
+                    });
+                  }}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                    selectedType === "large"
+                      ? "bg-blue-600 text-white border-blue-700"
+                      : "bg-slate-800 text-blue-200 border-slate-600 hover:bg-slate-700"
+                  }`}
+                  disabled={loading}
+                >
+                  قاعة كبيرة - {formatCurrency(prices.largeHall)}/ساعة
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedType("small");
+                    setFormData({
+                      ...formData,
+                      visitType: "small",
+                      hallName: HALLS.SMALL,
+                    });
+                  }}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                    selectedType === "small"
+                      ? "bg-blue-600 text-white border-blue-700"
+                      : "bg-slate-800 text-blue-200 border-slate-600 hover:bg-slate-700"
+                  }`}
+                  disabled={loading}
+                >
+                  قاعة صغيرة - {formatCurrency(prices.smallHall)}/ساعة
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedType("normal");
+                    setFormData({
+                      ...formData,
+                      visitType: "normal",
+                      hallName: "زيارة عادية",
+                    });
+                  }}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                    selectedType === "normal"
+                      ? "bg-blue-600 text-white border-blue-700"
+                      : "bg-slate-800 text-blue-200 border-slate-600 hover:bg-slate-700"
+                  }`}
+                  disabled={loading}
+                >
+                  زيارة عادية - {formatCurrency(prices.normalVisit)}/ساعة
+                </button>
+              </div>
             </div>
 
             <div>
@@ -448,7 +601,9 @@ export const Reservations = () => {
               <input
                 type="number"
                 value={formData.deposit}
-                onChange={(e) => setFormData({ ...formData, deposit: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, deposit: e.target.value })
+                }
                 className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="أدخل مبلغ العربون"
                 dir="rtl"
@@ -460,10 +615,23 @@ export const Reservations = () => {
 
             <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
               <p className="text-blue-200">
-                سعر الساعة: {formatCurrency(formData.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall)}
+                سعر الساعة:{" "}
+                {formatCurrency(
+                  formData.visitType === "large"
+                    ? prices.largeHall
+                    : formData.visitType === "small"
+                    ? prices.smallHall
+                    : prices.normalVisit
+                )}
               </p>
               <p className="text-white font-bold mt-2">
-                التكلفة الإجمالية: {formatCurrency(calculateTotalPrice(formData.hallName, parseInt(formData.durationRange)))}
+                التكلفة الإجمالية:{" "}
+                {formatCurrency(
+                  calculateTotalPrice(
+                    formData.visitType as "large" | "small" | "normal",
+                    parseInt(formData.durationRange)
+                  )
+                )}
               </p>
             </div>
 
@@ -472,7 +640,7 @@ export const Reservations = () => {
               disabled={loading}
               className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'جاري الحفظ...' : 'تأكيد الحجز'}
+              {loading ? "جاري الحفظ..." : "تأكيد الحجز"}
             </button>
           </form>
         </div>
@@ -485,15 +653,28 @@ export const Reservations = () => {
             >
               <div className="flex justify-between items-start">
                 <div>
-                  <h3 className="text-xl font-semibold text-white">{reservation.clientName}</h3>
+                  <h3 className="text-xl font-semibold text-white">
+                    {reservation.clientName}
+                  </h3>
                   <div className="mt-2 space-y-1">
                     <p className="text-blue-200">
                       {reservation.date} - {reservation.time}
                     </p>
                     <p className="text-blue-200">
-                      {formatDurationDisplay(reservation.duration.hours * 60 + reservation.duration.minutes)}
+                      {formatDurationDisplay(
+                        reservation.duration.hours * 60 +
+                          reservation.duration.minutes
+                      )}
                     </p>
                     <p className="text-blue-200">{reservation.hallName}</p>
+                    <p className="text-blue-200">
+                      نوع الزيارة:{" "}
+                      {reservation.visitType === "large"
+                        ? "قاعة كبيرة"
+                        : reservation.visitType === "small"
+                        ? "قاعة صغيرة"
+                        : "زيارة عادية"}
+                    </p>
                   </div>
                   <div className="mt-4 pt-4 border-t border-slate-700">
                     <p className="text-white">
@@ -503,7 +684,10 @@ export const Reservations = () => {
                       العربون: {formatCurrency(reservation.deposit)}
                     </p>
                     <p className="text-blue-400">
-                      المتبقي: {formatCurrency(reservation.totalPrice - reservation.deposit)}
+                      المتبقي:{" "}
+                      {formatCurrency(
+                        reservation.totalPrice - reservation.deposit
+                      )}
                     </p>
                   </div>
                 </div>

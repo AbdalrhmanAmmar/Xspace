@@ -1,4 +1,4 @@
-import { CartItem } from './product';
+import { CartItem } from "./product";
 
 export interface Client {
   id: string;
@@ -28,42 +28,42 @@ export interface Visit {
 export interface Subscription {
   id: string;
   clientName: string;
-  type: 'أسبوعي' | 'نصف شهري' | 'شهري';
+  type: "أسبوعي" | "نصف شهري" | "شهري";
   startDate: Date;
   endDate: Date;
   price: number;
-  status: 'نشط' | 'منتهي' | 'قريباً';
+  status: "نشط" | "منتهي" | "قريباً";
   totalDays: number;
   remainingDays: number;
   isFlexible: boolean;
 }
 
 export const SUBSCRIPTION_TYPES = {
-  WEEKLY: 'أسبوعي',
-  HALF_MONTHLY: 'نصف شهري',
-  MONTHLY: 'شهري'
+  WEEKLY: "أسبوعي",
+  HALF_MONTHLY: "نصف شهري",
+  MONTHLY: "شهري",
 } as const;
 
 export const SUBSCRIPTION_PRICES = {
   [SUBSCRIPTION_TYPES.WEEKLY]: 150,
   [SUBSCRIPTION_TYPES.HALF_MONTHLY]: 300,
-  [SUBSCRIPTION_TYPES.MONTHLY]: 500
+  [SUBSCRIPTION_TYPES.MONTHLY]: 500,
 } as const;
 
 export const SUBSCRIPTION_DAYS = {
   [SUBSCRIPTION_TYPES.WEEKLY]: 7,
   [SUBSCRIPTION_TYPES.HALF_MONTHLY]: 15,
-  [SUBSCRIPTION_TYPES.MONTHLY]: 30
+  [SUBSCRIPTION_TYPES.MONTHLY]: 30,
 } as const;
 
 export const HALLS = {
-  LARGE: 'القاعة الكبيرة',
-  SMALL: 'القاعة الصغيرة'
+  LARGE: "القاعة الكبيرة",
+  SMALL: "القاعة الصغيرة",
 } as const;
 
 export const HALL_PRICES = {
   [HALLS.LARGE]: 90,
-  [HALLS.SMALL]: 45
+  [HALLS.SMALL]: 45,
 } as const;
 
 // Add Supabase database types
@@ -82,17 +82,24 @@ export interface DbClient {
 
 export interface DbReservation {
   id: string;
-  client_id: string;
-  hall_id: string;
-  start_time: string;
-  end_time: string;
-  duration_minutes: number;
-  total_price: number;
-  deposit_amount: number;
-  status: string;
-  created_at: string;
-  updated_at: string;
-  created_by: string;
+  clientName: string;
+  date: string;
+  time: string;
+  duration: {
+    hours: number;
+    minutes: number;
+  };
+  hallName: string;
+  deposit: number;
+  totalPrice: number;
+  visitType: "large" | "small" | "normal";
+  status?: "active" | "cancelled" | "completed";
+  startTime?: string;
+  endTime?: string;
+  clientId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string;
 }
 
 export interface DbHall {

@@ -13,6 +13,7 @@ import {
   LayoutList,
   Edit2,
   Trash2,
+  Square,
 } from "lucide-react";
 import type { Subscription } from "../types/client";
 import { supabase } from "../lib/supabase";
@@ -22,6 +23,11 @@ interface SubscriptionPrices {
   weekly: number;
   halfMonthly: number;
   monthly: number;
+}
+
+interface SubscriptionDay {
+  date: string;
+  checked: boolean;
 }
 
 export const Subscriptions = () => {
@@ -50,6 +56,12 @@ export const Subscriptions = () => {
     halfMonthly: 300,
     monthly: 500,
   });
+  const [showDaysModal, setShowDaysModal] = useState(false);
+  const [selectedSubscription, setSelectedSubscription] =
+    useState<Subscription | null>(null);
+  const [subscriptionDays, setSubscriptionDays] = useState<SubscriptionDay[]>(
+    []
+  );
 
   useEffect(() => {
     if (user) {
@@ -123,6 +135,7 @@ export const Subscriptions = () => {
         totalDays: sub.total_days,
         remainingDays: calculateRemainingDays(new Date(sub.end_date)),
         isFlexible: sub.is_flexible,
+        days: sub.days || [],
       }));
 
       setSubscriptions(formattedSubscriptions);
@@ -174,10 +187,23 @@ export const Subscriptions = () => {
       }
 
       const startDate = new Date();
-      const totalDays =
-        formData.type === "أسبوعي" ? 7 : formData.type === "نصف شهري" ? 15 : 30;
+      let totalDays = 0;
+      let validityDays = 0;
+
+      // تحديد عدد الأيام وفترة الصلاحية حسب نوع الاشتراك
+      if (formData.type === "أسبوعي") {
+        totalDays = 7;
+        validityDays = 14; // 7 أيام خلال 14 يوم
+      } else if (formData.type === "نصف شهري") {
+        totalDays = 15;
+        validityDays = 30; // 15 يوم خلال 30 يوم
+      } else {
+        totalDays = 30;
+        validityDays = 60; // 30 يوم خلال 60 يوم
+      }
+
       const endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + totalDays);
+      endDate.setDate(endDate.getDate() + validityDays);
 
       const price =
         formData.type === "أسبوعي"
@@ -185,6 +211,14 @@ export const Subscriptions = () => {
           : formData.type === "نصف شهري"
           ? prices.halfMonthly
           : prices.monthly;
+
+      // إنشاء مصفوفة الأيام
+      const days = Array(totalDays)
+        .fill(null)
+        .map(() => ({
+          date: "",
+          checked: false,
+        }));
 
       if (editingSubscription) {
         const { error: updateError } = await supabase
@@ -194,9 +228,9 @@ export const Subscriptions = () => {
             price,
             total_days: totalDays,
             remaining_days: totalDays,
-            is_flexible:
-              formData.type === "نصف شهري" ? formData.isFlexible : false,
+            is_flexible: formData.isFlexible,
             updated_at: new Date().toISOString(),
+            days: days,
           })
           .eq("id", editingSubscription.id);
 
@@ -213,8 +247,8 @@ export const Subscriptions = () => {
               price,
               total_days: totalDays,
               remaining_days: totalDays,
-              is_flexible:
-                formData.type === "نصف شهري" ? formData.isFlexible : false,
+              is_flexible: formData.isFlexible,
+              days: days,
             },
           ]);
 
@@ -311,10 +345,6 @@ export const Subscriptions = () => {
     return "نشط";
   };
 
-  const filteredSubscriptions = subscriptions.filter((sub) =>
-    sub.clientName.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
   const formatDate = (date: Date) => {
     return date.toLocaleDateString("en-US", {
       year: "numeric",
@@ -322,6 +352,60 @@ export const Subscriptions = () => {
       day: "numeric",
     });
   };
+
+  const handleClientNameClick = (subscription: Subscription) => {
+    setSelectedSubscription(subscription);
+    setSubscriptionDays(
+      subscription.days ||
+        Array(subscription.totalDays)
+          .fill(null)
+          .map(() => ({
+            date: "",
+            checked: false,
+          }))
+    );
+    setShowDaysModal(true);
+  };
+
+  const handleDayCheck = (index: number) => {
+    const newDays = [...subscriptionDays];
+    newDays[index] = {
+      ...newDays[index],
+      checked: !newDays[index]?.checked,
+      date: newDays[index]?.date || new Date().toISOString(),
+    };
+    setSubscriptionDays(newDays);
+  };
+
+  const saveSubscriptionDays = async () => {
+    if (!selectedSubscription) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { error } = await supabase
+        .from("subscriptions")
+        .update({
+          days: subscriptionDays,
+        })
+        .eq("id", selectedSubscription.id);
+
+      if (error) throw error;
+
+      await fetchSubscriptions();
+      setShowDaysModal(false);
+    } catch (err: any) {
+      console.error("Error saving subscription days:", err);
+      setError(err.message || "حدث خطأ أثناء حفظ أيام الاشتراك");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredSubscriptions = subscriptions.filter((sub) =>
+    sub.clientName.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   if (!user) {
     return (
@@ -534,12 +618,14 @@ export const Subscriptions = () => {
                     dir="rtl"
                   >
                     <option value="أسبوعي">
-                      أسبوعي - {prices.weekly} جنيه
+                      أسبوعي - {prices.weekly} جنيه (7 أيام خلال 14 يوم)
                     </option>
                     <option value="نصف شهري">
-                      نصف شهري - {prices.halfMonthly} جنيه
+                      نصف شهري - {prices.halfMonthly} جنيه (15 يوم خلال 30 يوم)
                     </option>
-                    <option value="شهري">شهري - {prices.monthly} جنيه</option>
+                    <option value="شهري">
+                      شهري - {prices.monthly} جنيه (30 يوم خلال 60 يوم)
+                    </option>
                   </select>
                 </div>
 
@@ -580,6 +666,16 @@ export const Subscriptions = () => {
                           ? 15
                           : 30}{" "}
                         يوم
+                      </span>
+                    </li>
+                    <li className="flex justify-between">
+                      <span>فترة الصلاحية:</span>
+                      <span>
+                        {formData.type === "أسبوعي"
+                          ? "14 يوم"
+                          : formData.type === "نصف شهري"
+                          ? "30 يوم"
+                          : "60 يوم"}
                       </span>
                     </li>
                     <li className="flex justify-between">
@@ -641,7 +737,10 @@ export const Subscriptions = () => {
                 <div className="flex flex-col gap-4">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h3 className="text-xl font-semibold text-white">
+                      <h3
+                        className="text-xl font-semibold text-white cursor-pointer hover:text-blue-400"
+                        onClick={() => handleClientNameClick(subscription)}
+                      >
                         {subscription.clientName}
                       </h3>
                       <p className="text-slate-400 mt-1">
@@ -748,7 +847,10 @@ export const Subscriptions = () => {
                     key={subscription.id}
                     className="border-b border-slate-700/50 hover:bg-white/5"
                   >
-                    <td className="px-6 py-4 text-white">
+                    <td
+                      className="px-6 py-4 text-white cursor-pointer hover:text-blue-400"
+                      onClick={() => handleClientNameClick(subscription)}
+                    >
                       {subscription.clientName}
                     </td>
                     <td className="px-6 py-4 text-slate-300">
@@ -800,6 +902,73 @@ export const Subscriptions = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Days Modal */}
+        {showDaysModal && selectedSubscription && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-slate-800 rounded-xl p-6 w-full max-w-2xl border border-slate-700">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold text-white">
+                  أيام الاشتراك - {selectedSubscription.clientName}
+                </h2>
+                <button
+                  onClick={() => setShowDaysModal(false)}
+                  className="text-slate-400 hover:text-white transition-colors"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              <div className="mb-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-300">
+                    نوع الاشتراك: {selectedSubscription.type}
+                  </span>
+                  <span className="text-slate-300">
+                    الأيام المستخدمة:{" "}
+                    {subscriptionDays.filter((day) => day.checked).length} من{" "}
+                    {selectedSubscription.totalDays}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-7 gap-2 mb-6">
+                {Array.from({ length: selectedSubscription.totalDays }).map(
+                  (_, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleDayCheck(index)}
+                      className={`p-4 rounded-lg flex items-center justify-center ${
+                        subscriptionDays[index]?.checked
+                          ? "bg-blue-600 text-white"
+                          : "bg-slate-700 text-slate-300"
+                      }`}
+                    >
+                      <Square className="h-5 w-5" />
+                      <span className="mr-2">يوم {index + 1}</span>
+                    </button>
+                  )
+                )}
+              </div>
+
+              <div className="flex justify-end gap-4">
+                <button
+                  onClick={() => setShowDaysModal(false)}
+                  className="px-6 py-2 bg-slate-700 text-white rounded-lg font-medium hover:bg-slate-600 transition-colors"
+                >
+                  إلغاء
+                </button>
+                <button
+                  onClick={saveSubscriptionDays}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
+                  disabled={loading}
+                >
+                  {loading ? "جاري الحفظ..." : "حفظ التغييرات"}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
