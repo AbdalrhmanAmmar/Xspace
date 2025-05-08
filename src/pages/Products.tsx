@@ -1,60 +1,48 @@
 import React, { useState, useEffect } from "react";
-import { PlusCircle, Package, Edit2, Trash2, ShoppingCart } from "lucide-react";
+import {
+  PlusCircle,
+  Package,
+  Edit2,
+  Trash2,
+  ShoppingCart,
+  Plus,
+  Minus,
+  X,
+  Link as LinkIcon,
+} from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
-
-type Product = {
-  id: string;
-  name: string;
-  buyPrice: number;
-  price: number;
-  quantity: number;
-  created_at?: string;
-  updated_at?: string;
-};
-
-type CartItem = Product & {
-  quantity: number;
-};
-
-type Checkout = {
-  products: CartItem[];
-  startTime: Date;
-  endTime: Date | null;
-  hallPrice: number;
-  totalPrice: number;
-};
+import type { Product, LinkedProduct, CartItem } from "../types/product";
 
 export const Products = () => {
   const [products, setProducts] = useState<Product[]>([]);
+  const [linkedProducts, setLinkedProducts] = useState<LinkedProduct[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [checkout, setCheckout] = useState<Checkout | null>(null);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
   const [formData, setFormData] = useState({
     name: "",
-    buyPrice: 0,
+    buyPrice: "",
     price: "",
     quantity: "",
   });
-
-  const HOUR_RATE = 100;
+  const [selectedLinkedProducts, setSelectedLinkedProducts] = useState<
+    { productId: string; quantity: number }[]
+  >([]);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   useEffect(() => {
     if (user) {
       fetchProducts();
+      fetchLinkedProducts();
     }
   }, [user]);
 
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from("products")
-        .select("*")
-        .order("name");
+      const { data, error } = await supabase.from("products").select("*");
 
       if (error) throw error;
 
@@ -62,6 +50,66 @@ export const Products = () => {
     } catch (err) {
       console.error("Error fetching products:", err);
       setError("حدث خطأ أثناء تحميل المنتجات");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchLinkedProducts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("linked_products")
+        .select(`*, linkedProduct:linked_product_id(*)`)
+        .order("created_at");
+
+      if (error) throw error;
+
+      setLinkedProducts(
+        data.map((item) => ({
+          id: item.id,
+          mainProductId: item.main_product_id,
+          linkedProductId: item.linked_product_id,
+          quantity: item.quantity,
+          linkedProduct: item.linkedProduct,
+        }))
+      );
+    } catch (err) {
+      console.error("Error fetching linked products:", err);
+      setError("حدث خطأ أثناء تحميل المنتجات المرتبطة");
+    }
+  };
+
+  const handleEdit = async (product: Product) => {
+    try {
+      setLoading(true);
+      const { data: linkedData, error: linkedError } = await supabase
+        .from("linked_products")
+        .select(`
+          id,
+          linked_product_id,
+          quantity
+        `)
+        .eq("main_product_id", product.id);
+
+      if (linkedError) throw linkedError;
+
+      setEditingProduct(product);
+      setFormData({
+        name: product.name,
+        buyPrice: product.buyPrice || "",
+        price: product.price.toString(),
+        quantity: product.quantity.toString(),
+      });
+
+      setSelectedLinkedProducts(
+        linkedData.map(item => ({
+          productId: item.linked_product_id,
+          quantity: item.quantity
+        }))
+      );
+    } catch (err) {
+      console.error("Error fetching linked products:", err);
+      setError("حدث خطأ أثناء تحميل المنتجات المرتبطة");
     } finally {
       setLoading(false);
     }
@@ -80,28 +128,67 @@ export const Products = () => {
 
       const productData = {
         name: formData.name,
-        buyPrice: Number(formData.buyPrice),
+        buyPrice: formData.buyPrice || null,
         price: Number(formData.price),
         quantity: Number(formData.quantity),
       };
 
       if (editingProduct) {
-        const { error } = await supabase
+        const { error: productError } = await supabase
           .from("products")
-          .update({
-            ...productData,
-            updated_at: new Date().toISOString(),
-          })
+          .update(productData)
           .eq("id", editingProduct.id);
 
-        if (error) throw error;
+        if (productError) throw productError;
+
+        const { error: deleteError } = await supabase
+          .from("linked_products")
+          .delete()
+          .eq("main_product_id", editingProduct.id);
+
+        if (deleteError) throw deleteError;
+
+        if (selectedLinkedProducts.length > 0) {
+          const linkedProductsData = selectedLinkedProducts.map(item => ({
+            main_product_id: editingProduct.id,
+            linked_product_id: item.productId,
+            quantity: item.quantity
+          }));
+
+          const { error: linkError } = await supabase
+            .from("linked_products")
+            .insert(linkedProductsData);
+
+          if (linkError) throw linkError;
+        }
       } else {
-        const { error } = await supabase.from("products").insert([productData]);
-        if (error) throw error;
+        const { data: newProduct, error: productError } = await supabase
+          .from("products")
+          .insert([productData])
+          .select()
+          .single();
+
+        if (productError) throw productError;
+
+        if (selectedLinkedProducts.length > 0) {
+          const linkedProductsData = selectedLinkedProducts.map(item => ({
+            main_product_id: newProduct.id,
+            linked_product_id: item.productId,
+            quantity: item.quantity
+          }));
+
+          const { error: linkError } = await supabase
+            .from("linked_products")
+            .insert(linkedProductsData);
+
+          if (linkError) throw linkError;
+        }
       }
 
       await fetchProducts();
+      await fetchLinkedProducts();
       setFormData({ name: "", buyPrice: "", price: "", quantity: "" });
+      setSelectedLinkedProducts([]);
       setEditingProduct(null);
     } catch (err: any) {
       console.error("Error saving product:", err);
@@ -111,62 +198,56 @@ export const Products = () => {
     }
   };
 
-  const handleEdit = (product: Product) => {
-    setEditingProduct(product);
-    setFormData({
-      name: product.name,
-      buyPrice: product.buyPrice?.toString() || "0", // هنا التعديل الرئيسي
-      price: product.price.toString(),
-      quantity: product.quantity.toString(),
-    });
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm("هل أنت متأكد من حذف هذا المنتج؟")) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const { error } = await supabase.from("products").delete().eq("id", id);
-      if (error) throw error;
-
-      await fetchProducts();
-    } catch (err: any) {
-      console.error("Error deleting product:", err);
-      setError(err.message || "حدث خطأ أثناء حذف المنتج");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const addToCart = (product: Product) => {
-    const existingCartItem = cart.find((item) => item.id === product.id);
-    const currentCartQuantity = existingCartItem
-      ? existingCartItem.quantity
-      : 0;
-
     if (product.quantity <= 0) {
       setError("هذا المنتج غير متوفر حالياً");
       return;
     }
 
-    if (currentCartQuantity + 1 > product.quantity) {
-      setError("عذراً، الكمية المطلوبة غير متوفرة");
-      return;
-    }
-
     setCart((currentCart) => {
       const existingItem = currentCart.find((item) => item.id === product.id);
+      
       if (existingItem) {
+        if (existingItem.quantity + 1 > product.quantity) {
+          setError("عذراً، الكمية المطلوبة غير متوفرة");
+          return currentCart;
+        }
+
         return currentCart.map((item) =>
           item.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
+            ? {
+                ...item,
+                quantity: item.quantity + 1,
+                linkedItems: getLinkedItems(product.id, item.quantity + 1),
+              }
             : item
         );
       }
-      return [...currentCart, { ...product, quantity: 1 }];
+
+      const linkedItems = getLinkedItems(product.id, 1);
+      return [
+        ...currentCart,
+        { ...product, quantity: 1, linkedItems },
+      ];
     });
+  };
+
+  const getLinkedItems = (productId: string, mainQuantity: number): CartItem[] => {
+    const productLinks = linkedProducts.filter(
+      (link) => link.mainProductId === productId
+    );
+
+    return productLinks.map((link) => {
+      const linkedProduct = products.find(
+        (p) => p.id === link.linkedProductId
+      );
+      if (!linkedProduct) return null;
+
+      return {
+        ...linkedProduct,
+        quantity: link.quantity * mainQuantity,
+      };
+    }).filter((item): item is CartItem => item !== null);
   };
 
   const removeFromCart = (productId: string) => {
@@ -179,72 +260,40 @@ export const Products = () => {
       }
 
       return currentCart.map((item) =>
-        item.id === productId ? { ...item, quantity: item.quantity - 1 } : item
+        item.id === productId
+          ? {
+              ...item,
+              quantity: item.quantity - 1,
+              linkedItems: getLinkedItems(productId, item.quantity - 1),
+            }
+          : item
       );
     });
   };
 
-  const startCheckout = () => {
-    const startTime = new Date();
-    setCheckout({
-      products: cart,
-      startTime,
-      endTime: null,
-      hallPrice: 0,
-      totalPrice: cart.reduce(
-        (total, item) => total + item.price * item.quantity,
-        0
-      ),
-    });
+  const handleAddLinkedProduct = () => {
+    setSelectedLinkedProducts([
+      ...selectedLinkedProducts,
+      { productId: "", quantity: 1 },
+    ]);
   };
 
-  const finishCheckout = async () => {
-    if (!checkout) return;
+  const handleRemoveLinkedProduct = (index: number) => {
+    setSelectedLinkedProducts(
+      selectedLinkedProducts.filter((_, i) => i !== index)
+    );
+  };
 
-    try {
-      setLoading(true);
-      const endTime = new Date();
-      const hours = Math.ceil(
-        (endTime.getTime() - checkout.startTime.getTime()) / (1000 * 60 * 60)
-      );
-      const hallPrice = hours * HOUR_RATE;
-      const productsPrice = checkout.products.reduce(
-        (total, item) => total + item.price * item.quantity,
-        0
-      );
-
-      const updates = checkout.products.map(async (item) => {
-        const product = products.find((p) => p.id === item.id);
-        if (!product) return;
-
-        const newQuantity = product.quantity - item.quantity;
-        const { error } = await supabase
-          .from("products")
-          .update({
-            quantity: newQuantity,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", item.id);
-
-        if (error) throw error;
-      });
-
-      await Promise.all(updates);
-
-      setCheckout({
-        ...checkout,
-        endTime,
-        hallPrice,
-        totalPrice: hallPrice + productsPrice,
-      });
-      setCart([]);
-      await fetchProducts();
-    } catch (err: any) {
-      console.error("Error finishing checkout:", err);
-      setError(err.message || "حدث خطأ أثناء إتمام عملية البيع");
-    } finally {
-      setLoading(false);
-    }
+  const updateLinkedProduct = (
+    index: number,
+    field: "productId" | "quantity",
+    value: string | number
+  ) => {
+    setSelectedLinkedProducts(
+      selectedLinkedProducts.map((item, i) =>
+        i === index ? { ...item, [field]: value } : item
+      )
+    );
   };
 
   const formatCurrency = (amount: number) => {
@@ -350,6 +399,67 @@ export const Products = () => {
                 />
               </div>
 
+              {/* Linked Products Section */}
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm font-medium text-blue-200">
+                    المنتجات المرتبطة
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddLinkedProduct}
+                    className="text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                  >
+                    <Plus className="h-4 w-4" />
+                    إضافة منتج مرتبط
+                  </button>
+                </div>
+
+                {selectedLinkedProducts.map((item, index) => (
+                  <div
+                    key={index}
+                    className="flex gap-3 items-center bg-slate-800/50 p-3 rounded-lg"
+                  >
+                    <select
+                      value={item.productId}
+                      onChange={(e) =>
+                        updateLinkedProduct(index, "productId", e.target.value)
+                      }
+                      className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+                    >
+                      <option value="">اختر منتج</option>
+                      {products
+                        .filter((p) => p.id !== editingProduct?.id)
+                        .map((product) => (
+                          <option key={product.id} value={product.id}>
+                            {product.name}
+                          </option>
+                        ))}
+                    </select>
+                    <input
+                      type="number"
+                      value={item.quantity}
+                      onChange={(e) =>
+                        updateLinkedProduct(
+                          index,
+                          "quantity",
+                          parseInt(e.target.value)
+                        )
+                      }
+                      min="1"
+                      className="w-24 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveLinkedProduct(index)}
+                      className="text-red-400 hover:text-red-300"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
               <div className="flex gap-4">
                 <button
                   type="submit"
@@ -374,6 +484,7 @@ export const Products = () => {
                         price: "",
                         quantity: "",
                       });
+                      setSelectedLinkedProducts([]);
                     }}
                     className="flex-1 bg-slate-700 text-white py-3 px-4 rounded-lg font-medium hover:bg-slate-600 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-500"
                     disabled={loading}
@@ -402,19 +513,40 @@ export const Products = () => {
                     className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 flex items-center justify-between"
                   >
                     <div className="space-y-1">
-                      <p className="text-white font-medium">{product.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-white font-medium">{product.name}</p>
+                        {linkedProducts.some(
+                          (lp) => lp.mainProductId === product.id
+                        ) && (
+                          <LinkIcon className="h-4 w-4 text-blue-400" />
+                        )}
+                      </div>
                       <p className="text-black text-sm bg-red-500 rounded-md">
                         {product.buyPrice == null
                           ? "لا يوجد سعر جمله"
-                          : `سعر الجملة: ${formatCurrency(product.buyPrice)}`}
+                          : `سعر الجملة: ${formatCurrency(
+                              parseFloat(product.buyPrice)
+                            )}`}
                       </p>
                       <p className="text-black rounded-md text-sm bg-green-500">
                         سعر البيع: {formatCurrency(product.price)}
                       </p>
-
                       <p className="text-blue-200 text-sm">
                         الكمية المتوفرة: {product.quantity}
                       </p>
+
+                      {/* Show linked products */}
+                      {linkedProducts
+                        .filter((lp) => lp.mainProductId === product.id)
+                        .map((lp) => (
+                          <p
+                            key={lp.id}
+                            className="text-slate-400 text-sm flex items-center gap-1"
+                          >
+                            <LinkIcon className="h-3 w-3" />
+                            {lp.linkedProduct?.name} ({lp.quantity}x)
+                          </p>
+                        ))}
                     </div>
                     <div className="flex gap-2">
                       <button
@@ -425,13 +557,6 @@ export const Products = () => {
                         <Edit2 className="h-5 w-5" />
                       </button>
                       <button
-                        onClick={() => handleDelete(product.id)}
-                        className="p-2 text-red-400 hover:bg-slate-700 rounded-lg transition-colors"
-                        disabled={loading}
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                      <button
                         onClick={() => addToCart(product)}
                         className={`p-2 ${
                           product.quantity > 0
@@ -439,7 +564,9 @@ export const Products = () => {
                             : "text-gray-500 cursor-not-allowed"
                         } rounded-lg transition-colors`}
                         disabled={product.quantity === 0 || loading}
-                      ></button>
+                      >
+                        <ShoppingCart className="h-5 w-5" />
+                      </button>
                     </div>
                   </div>
                 ))
@@ -452,87 +579,82 @@ export const Products = () => {
             </div>
           </div>
 
-          {/* Cart and Checkout */}
-          {(cart.length > 0 || checkout) && (
+          {/* Cart */}
+          {cart.length > 0 && (
             <div className="lg:col-span-2 bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
               <h2 className="text-xl font-semibold text-white mb-6">
-                الفاتورة
+                سلة المشتريات
               </h2>
-
               <div className="space-y-4">
                 {cart.map((item) => (
-                  <div
-                    key={item.id}
-                    className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 flex items-center justify-between"
-                  >
-                    <div className="space-y-1">
-                      <p className="text-white font-medium">{item.name}</p>
-                      <p className="text-blue-200 text-sm">
-                        {item.quantity} × {formatCurrency(item.price)} ={" "}
-                        {formatCurrency(item.quantity * item.price)}
-                      </p>
+                  <div key={item.id} className="space-y-2">
+                    <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 flex items-center justify-between">
+                      <div className="space-y-1">
+                        <p className="text-white font-medium">{item.name}</p>
+                        <p className="text-blue-200 text-sm">
+                          {item.quantity} × {formatCurrency(item.price)} ={" "}
+                          {formatCurrency(item.quantity * item.price)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => removeFromCart(item.id)}
+                          className="p-2 text-red-400 hover:bg-slate-700 rounded-lg transition-colors"
+                        >
+                          <Minus className="h-4 w-4" />
+                        </button>
+                        <span className="text-white px-2">{item.quantity}</span>
+                        <button
+                          onClick={() => addToCart(item)}
+                          className="p-2 text-green-400 hover:bg-slate-700 rounded-lg transition-colors"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => removeFromCart(item.id)}
-                        className="p-2 text-red-400 hover:bg-slate-700 rounded-lg transition-colors"
+
+                    {/* Linked Items */}
+                    {item.linkedItems?.map((linkedItem) => (
+                      <div
+                        key={linkedItem.id}
+                        className="bg-slate-800/30 p-3 rounded-lg border border-slate-700/50 flex items-center justify-between mr-6"
                       >
-                        -
-                      </button>
-                      <button
-                        onClick={() => addToCart(item)}
-                        className="p-2 text-green-400 hover:bg-slate-700 rounded-lg transition-colors"
-                      >
-                        +
-                      </button>
-                    </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <LinkIcon className="h-3 w-3 text-blue-400" />
+                            <p className="text-slate-300">{linkedItem.name}</p>
+                          </div>
+                          <p className="text-slate-400 text-sm">
+                            {linkedItem.quantity} × {formatCurrency(linkedItem.price)} ={" "}
+                            {formatCurrency(linkedItem.quantity * linkedItem.price)}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ))}
 
-                {checkout && (
-                  <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
-                    <div className="space-y-2">
-                      <p className="text-white">
-                        وقت البدء:{" "}
-                        {checkout.startTime.toLocaleTimeString("ar-SA")}
-                      </p>
-                      {checkout.endTime && (
-                        <>
-                          <p className="text-white">
-                            وقت الانتهاء:{" "}
-                            {checkout.endTime.toLocaleTimeString("ar-SA")}
-                          </p>
-                          <p className="text-white">
-                            تكلفة القاعة: {formatCurrency(checkout.hallPrice)}
-                          </p>
-                          <p className="text-white font-bold">
-                            المجموع الكلي: {formatCurrency(checkout.totalPrice)}
-                          </p>
-                        </>
+                <div className="pt-4 border-t border-slate-700">
+                  <div className="flex justify-between items-center text-xl font-bold text-white">
+                    <span>الإجمالي:</span>
+                    <span>
+                      {formatCurrency(
+                        cart.reduce(
+                          (total, item) => {
+                            const itemTotal = item.price * item.quantity;
+                            const linkedItemsTotal = (item.linkedItems || []).reduce(
+                              (sum, linkedItem) =>
+                                sum + linkedItem.price * linkedItem.quantity,
+                              0
+                            );
+                            return total + itemTotal + linkedItemsTotal;
+                          },
+                          0
+                        )
                       )}
-                    </div>
+                    </span>
                   </div>
-                )}
-
-                {!checkout && (
-                  <button
-                    onClick={startCheckout}
-                    className="w-full bg-green-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-green-700 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500"
-                    disabled={loading}
-                  >
-                    بدء الحساب
-                  </button>
-                )}
-
-                {checkout && !checkout.endTime && (
-                  <button
-                    onClick={finishCheckout}
-                    className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    disabled={loading}
-                  >
-                    {loading ? "جاري إتمام العملية..." : "إنهاء الحساب"}
-                  </button>
-                )}
+                </div>
               </div>
             </div>
           )}

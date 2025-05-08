@@ -6,8 +6,17 @@ export interface Product {
   quantity: number;
 }
 
+export interface LinkedProduct {
+  id: string;
+  mainProductId: string;
+  linkedProductId: string;
+  quantity: number;
+  linkedProduct?: Product;
+}
+
 export interface CartItem extends Product {
   quantity: number;
+  linkedItems?: CartItem[];
 }
 
 export interface Checkout {
