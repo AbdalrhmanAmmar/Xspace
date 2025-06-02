@@ -1419,7 +1419,8 @@ const calculateTotalAmount = (visit: Visit): number => {
                         {formatCurrency(
                           calculateTimeCost(
                             calculateVisitDuration(selectedVisit),
-                            selectedVisit.numberOfPeople || 1
+                            selectedVisit.numberOfPeople || 1,
+                            selectedVisit.type || "default"
                           )
                         )}
                       </span>
