@@ -35,6 +35,7 @@ interface Visit {
   isPaused: boolean;
   pauseHistory: Pause[];
   numberOfPeople?: number; // أضف هذا الحقل
+  type?: "default" | "big" | "small"; // أضف هذا الحقل
 }
 
 interface ClientWithSubscription extends Client {
@@ -352,103 +353,107 @@ const fetchVisits = async () => {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) {
-      setError("يجب تسجيل الدخول أولاً");
-      return;
-    }
+const handleSubmit = async (e: React.FormEvent, type: "default" | "small" | "big") => {
+  e.preventDefault();
+  if (!user) {
+    setError("يجب تسجيل الدخول أولاً");
+    return;
+  }
 
-    try {
-      setLoading(true);
-      setError(null);
-      const currentDate = new Date();
+  try {
+    setLoading(true);
+    setError(null);
+    const currentDate = new Date();
 
-      // Create or update client
-      let clientId: string;
-      if (clientStatus === "new") {
-        const { data: clientData, error: clientError } = await supabase
-          .from("clients")
-          .insert([
-            {
-              name: formData.name,
-              phone: formData.phone || null,
-              job: formData.job || null,
-              is_new_client: true,
-              last_visit: currentDate.toISOString(),
-            },
-          ])
-          .select()
-          .single();
-
-        if (clientError) throw clientError;
-        clientId = clientData.id;
-      } else {
-        const { data: existingClient, error: clientError } = await supabase
-          .from("clients")
-          .select("id")
-          .eq("name", formData.name)
-          .single();
-
-        if (clientError) throw clientError;
-        clientId = existingClient.id;
-
-        // Update client's last visit
-        const { error: updateError } = await supabase
-          .from("clients")
-          .update({
-            last_visit: currentDate.toISOString(),
-            phone: formData.phone || null,
-            job: formData.job || null,
-          })
-          .eq("id", clientId);
-
-        if (updateError) throw updateError;
-      }
-
-      // Create visit
-      const { data: visitData, error: visitError } = await supabase
-        .from("visits")
+    // Create or update client
+    let clientId: string;
+    if (clientStatus === "new") {
+      const { data: clientData, error: clientError } = await supabase
+        .from("clients")
         .insert([
           {
-            client_id: clientId,
-            start_time: currentDate.toISOString(),
-            is_paused: false,
-            number_of_people: numberOfPeople,
+            name: formData.name,
+            phone: formData.phone || null,
+            job: formData.job || null,
+            is_new_client: true,
+            last_visit: currentDate.toISOString(),
           },
         ])
         .select()
         .single();
 
-      if (visitError) throw visitError;
+      if (clientError) throw clientError;
+      clientId = clientData.id;
+    } else {
+      const { data: existingClient, error: clientError } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("name", formData.name)
+        .single();
 
-      const visitId = visitData.id;
+      if (clientError) throw clientError;
+      clientId = existingClient.id;
 
-      const visitObj: Visit = {
-        id: visitId,
-        clientName: formData.name,
-        startTime: currentDate,
-        products: [],
-        isPaused: false,
-        numberOfPeople: numberOfPeople,
-        pauseHistory: [],
-      };
+      // Update client's last visit
+      const { error: updateError } = await supabase
+        .from("clients")
+        .update({
+          last_visit: currentDate.toISOString(),
+          phone: formData.phone || null,
+          job: formData.job || null,
+        })
+        .eq("id", clientId);
 
-      setVisits((prev) => [visitObj, ...prev]);
-      setSelectedProducts([]);
-      setFormData({ name: "", phone: "", job: "" });
-      setClientStatus(null);
-      setNumberOfPeople(1);
-
-      // Refresh data
-      await Promise.all([fetchClients(), fetchVisits()]);
-    } catch (err: any) {
-      console.error("Error saving visit:", err);
-      setError(err.message || "حدث خطأ أثناء حفظ بيانات الزيارة");
-    } finally {
-      setLoading(false);
+      if (updateError) throw updateError;
     }
-  };
+
+    // Create visit - هنا تم إصلاح المشكلة
+    const { data: visitData, error: visitError } = await supabase
+      .from("visits")
+      .insert([
+        {
+          client_id: clientId,
+          start_time: currentDate.toISOString(),
+          is_paused: false,
+          number_of_people: numberOfPeople,
+          type: type, // ✅ استخدام المعامل type المرسل للدالة
+        },
+      ])
+      .select()
+      .single();
+
+    if (visitError) throw visitError;
+
+    const visitId = visitData.id;
+
+    const visitObj: Visit = {
+      id: visitId,
+      clientName: formData.name,
+      startTime: currentDate,
+      products: [],
+      isPaused: false,
+      numberOfPeople: numberOfPeople,
+      pauseHistory: [],
+      type: type, // ✅ استخدام المعامل type المرسل للدالة
+    };
+
+    setVisits((prev) => [visitObj, ...prev]);
+    setSelectedProducts([]);
+    setFormData({ name: "", phone: "", job: "" });
+    setClientStatus(null);
+    setNumberOfPeople(1);
+    // لا نحتاج لإعادة تعيين visitType لأننا نستخدم المعامل المرسل
+
+    // Refresh data
+    await Promise.all([fetchClients(), fetchVisits()]);
+  } catch (err: any) {
+    console.error("Error saving visit:", err);
+    setError(err.message || "حدث خطأ أثناء حفظ بيانات الزيارة");
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const formatTime = (date: Date) => {
     const hours = date.getHours();
@@ -499,6 +504,7 @@ const calculateTimeCost = (
   type: "default" | "big" | "small" = "default"
 ): number => {
   if (hours === 0) return 0;
+  
   switch (type) {
     case "big":
       return 70 * hours * numberOfPeople;
@@ -520,7 +526,7 @@ const calculateTotalAmount = (visit: Visit): number => {
   const timeTotal = calculateTimeCost(
     hours,
     visit.numberOfPeople || 1,
-    visitType // مررنا نوع الزيارة هنا
+    visit.type || "default" // ✅ استخدام النوع من الزيارة
   );
   return productsTotal + timeTotal;
 };
@@ -991,32 +997,33 @@ const calculateTotalAmount = (visit: Visit): number => {
                   </button>
                 </div>
               </div>
-         <div className="flex gap-4">
+<div className="flex gap-4">
   <button
-    type="submit"
-    onClick={() => setVisitType("default")}
+    type="button"
+    onClick={(e) => handleSubmit(e, "default")}
     disabled={loading}
     className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700"
   >
     {loading ? "..." : "تسجيل زيارة عادية"}
   </button>
   <button
-    type="submit"
-    onClick={() => setVisitType("big")}
+    type="button"
+    onClick={(e) => handleSubmit(e, "big")}
     disabled={loading}
     className="w-full bg-yellow-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-yellow-700"
   >
     {loading ? "..." : "قاعة كبيرة"}
   </button>
   <button
-    type="submit"
-    onClick={() => setVisitType("small")}
+    type="button"
+    onClick={(e) => handleSubmit(e, "small")}
     disabled={loading}
     className="w-full bg-green-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-green-700"
   >
     {loading ? "..." : "قاعة صغيرة"}
   </button>
 </div>
+
             </form>
           </div>
 
@@ -1058,7 +1065,7 @@ const calculateTotalAmount = (visit: Visit): number => {
                         {formatTime(visit.startTime)}
                       </p>
                     </div>
-                  <span
+<span
   className={`px-3 py-1 rounded-full text-sm ${
     visit.endTime
       ? "bg-green-500/20 text-green-400"
@@ -1073,9 +1080,9 @@ const calculateTotalAmount = (visit: Visit): number => {
     ? "متوقفة مؤقتاً"
     : "جارية"}{" "}
   •{" "}
-  {visitType === "big"
+  {visit.type === "big"
     ? "قاعة كبيرة"
-    : visitType === "small"
+    : visit.type === "small"
     ? "قاعة صغيرة"
     : "عادية"}
 </span>
