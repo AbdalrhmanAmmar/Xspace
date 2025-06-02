@@ -46,6 +46,7 @@ export const ClientManagement = () => {
 
   const [clients, setClients] = useState<ClientWithSubscription[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
+const [visitType, setVisitType] = useState<"default" | "small" | "big">("default");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clientStatus, setClientStatus] = useState<"new" | "existing" | null>(
@@ -256,55 +257,61 @@ export const ClientManagement = () => {
     }
   };
 
-  const fetchVisits = async () => {
-    try {
-      const { data: visitsData, error: visitsError } = await supabase
-        .from("visits")
-        .select(
-          `
+const fetchVisits = async () => {
+  try {
+    const { data: visitsData, error: visitsError } = await supabase
+      .from("visits")
+      .select(`
+        *,
+        clients (
+          name
+        ),
+        visit_products (
           *,
-          clients (
-            name
-          ),
-          visit_products (
-            *,
-            products (*)
-          ),
-          visit_pauses (*)
-        `
+          products (
+            id,
+            name,
+            price
+          )
+        ),
+        visit_pauses (
+          start_time,
+          end_time
         )
-        .order("created_at", { ascending: false });
+      `)
+      .order("created_at", { ascending: false });
 
-      if (visitsError) throw visitsError;
+    if (visitsError) throw visitsError;
 
-      const formattedVisits = (visitsData || []).map((visit) => ({
-        id: visit.id,
-        clientName: visit.clients?.name || "",
-        startTime: new Date(visit.start_time),
-        endTime: visit.end_time ? new Date(visit.end_time) : undefined,
-        products:
-          visit.visit_products?.map((vp: any) => ({
-            id: vp.products?.id,
-            name: vp.products?.name,
-            price: vp.price,
-            quantity: vp.quantity,
-          })) || [],
-        totalAmount: visit.total_amount,
-        isPaused: visit.is_paused,
-        numberOfPeople: visit.number_of_people || 1,
-        pauseHistory:
-          visit.visit_pauses?.map((pause: any) => ({
-            startTime: new Date(pause.start_time),
-            endTime: pause.end_time ? new Date(pause.end_time) : undefined,
-          })) || [],
-      }));
+    const formattedVisits = (visitsData || []).map((visit) => ({
+      id: visit.id,
+      clientName: visit.clients?.name || "",
+      startTime: new Date(visit.start_time),
+      endTime: visit.end_time ? new Date(visit.end_time) : undefined,
+      products:
+        visit.visit_products?.map((vp: any) => ({
+          id: vp.products?.id,
+          name: vp.products?.name,
+          price: vp.price,
+          quantity: vp.quantity,
+        })) || [],
+      totalAmount: visit.total_amount,
+      isPaused: visit.is_paused,
+      numberOfPeople: visit.number_of_people || 1,
+      pauseHistory:
+        visit.visit_pauses?.map((pause: any) => ({
+          startTime: new Date(pause.start_time),
+          endTime: pause.end_time ? new Date(pause.end_time) : undefined,
+        })) || [],
+      type: visit.type || "default", // ✅ النوع يُحمّل الآن بنجاح
+    }));
 
-      setVisits(formattedVisits);
-    } catch (err) {
-      console.error("Error fetching visits:", err);
-      setError("حدث خطأ أثناء تحميل الزيارات");
-    }
-  };
+    setVisits(formattedVisits);
+  } catch (err) {
+    console.error("Error fetching visits:", err);
+    setError("حدث خطأ أثناء تحميل الزيارات");
+  }
+};
 
   const checkClientExists = async (name: string) => {
     try {
@@ -486,24 +493,37 @@ export const ClientManagement = () => {
     return remainingMinutes >= 15 ? fullHours + 1 : fullHours;
   };
 
-  const calculateTimeCost = (
-    hours: number,
-    numberOfPeople: number = 1
-  ): number => {
-    if (hours === 0) return 0;
-    if (hours === 1) return HOUR_RATE_FIRST * numberOfPeople;
-    return (HOUR_RATE_FIRST + (hours - 1) * HOUR_RATE_NEXT) * numberOfPeople;
-  };
-
-  const calculateTotalAmount = (visit: Visit): number => {
-    const productsTotal = visit.products.reduce(
-      (sum, p) => sum + p.price * p.quantity,
-      0
-    );
-    const hours = calculateVisitDuration(visit);
-    const timeTotal = calculateTimeCost(hours, visit.numberOfPeople || 1);
-    return productsTotal + timeTotal;
-  };
+const calculateTimeCost = (
+  hours: number,
+  numberOfPeople: number = 1,
+  type: "default" | "big" | "small" = "default"
+): number => {
+  if (hours === 0) return 0;
+  switch (type) {
+    case "big":
+      return 70 * hours * numberOfPeople;
+    case "small":
+      return 45 * hours * numberOfPeople;
+    case "default":
+    default:
+      return hours === 1
+        ? HOUR_RATE_FIRST * numberOfPeople
+        : (HOUR_RATE_FIRST + (hours - 1) * HOUR_RATE_NEXT) * numberOfPeople;
+  }
+};
+const calculateTotalAmount = (visit: Visit): number => {
+  const productsTotal = visit.products.reduce(
+    (sum, p) => sum + p.price * p.quantity,
+    0
+  );
+  const hours = calculateVisitDuration(visit);
+  const timeTotal = calculateTimeCost(
+    hours,
+    visit.numberOfPeople || 1,
+    visitType // مررنا نوع الزيارة هنا
+  );
+  return productsTotal + timeTotal;
+};
 
   const pauseVisit = async (visitId: string) => {
     try {
@@ -971,14 +991,32 @@ export const ClientManagement = () => {
                   </button>
                 </div>
               </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? "جاري الحفظ..." : "تسجيل زيارة"}
-              </button>
+         <div className="flex gap-4">
+  <button
+    type="submit"
+    onClick={() => setVisitType("default")}
+    disabled={loading}
+    className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700"
+  >
+    {loading ? "..." : "تسجيل زيارة عادية"}
+  </button>
+  <button
+    type="submit"
+    onClick={() => setVisitType("big")}
+    disabled={loading}
+    className="w-full bg-yellow-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-yellow-700"
+  >
+    {loading ? "..." : "قاعة كبيرة"}
+  </button>
+  <button
+    type="submit"
+    onClick={() => setVisitType("small")}
+    disabled={loading}
+    className="w-full bg-green-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-green-700"
+  >
+    {loading ? "..." : "قاعة صغيرة"}
+  </button>
+</div>
             </form>
           </div>
 
@@ -1020,21 +1058,28 @@ export const ClientManagement = () => {
                         {formatTime(visit.startTime)}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 ml-6">
-                      {visit.endTime ? (
-                        <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm">
-                          منتهية
-                        </span>
-                      ) : visit.isPaused ? (
-                        <span className="bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full text-sm">
-                          متوقفة مؤقتاً
-                        </span>
-                      ) : (
-                        <span className="bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full text-sm">
-                          جارية
-                        </span>
-                      )}
-                    </div>
+                  <span
+  className={`px-3 py-1 rounded-full text-sm ${
+    visit.endTime
+      ? "bg-green-500/20 text-green-400"
+      : visit.isPaused
+      ? "bg-yellow-500/20 text-yellow-400"
+      : "bg-blue-500/20 text-blue-400"
+  }`}
+>
+  {visit.endTime
+    ? "منتهية"
+    : visit.isPaused
+    ? "متوقفة مؤقتاً"
+    : "جارية"}{" "}
+  •{" "}
+  {visitType === "big"
+    ? "قاعة كبيرة"
+    : visitType === "small"
+    ? "قاعة صغيرة"
+    : "عادية"}
+</span>
+
                   </div>
                   <button
                     className="text-red-500"
