@@ -807,9 +807,21 @@ const calculateTotalAmount = (visit: Visit): number => {
     }
   };
 
-  const filteredVisits = visits.filter((visit) =>
+const filteredVisits = visits
+  .filter((visit) =>
     visit.clientName.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  )
+  .sort((a, b) => {
+    const getStatusRank = (v: Visit) => {
+      if (!v.endTime && !v.isPaused) return 0;     // جارية
+      if (v.isPaused) return 1;                    // متوقفة
+      if (v.endTime) return 2;                     // منتهية
+      return 3; // fallback
+    };
+
+    return getStatusRank(a) - getStatusRank(b);
+  });
+
 
   const handleSaleComplete = (total: number) => {
     alert(`تمت عملية البيع بنجاح! الإجمالي: ${total} جنيه`);
