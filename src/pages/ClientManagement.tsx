@@ -834,6 +834,7 @@ const filteredVisits = visits
 
   return (
     <div className="min-h-screen bg-slate-900">
+    <div className="bg-red-900 text-center  py-6 px-4 text-white font-bold mx-6 rounded-md my-6 "> تنويه سوف يتم اغلاق هذا النظام من الغد للصيانه</div>
       <div className="max-w-6xl mx-auto p-6">
         <h1 className="text-3xl font-bold text-white mb-8 text-center">
           إدارة الزيارات
