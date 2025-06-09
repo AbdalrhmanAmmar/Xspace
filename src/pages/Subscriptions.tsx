@@ -17,6 +17,8 @@ import {
 import type { Subscription } from "../types/client";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { AttendanceModal } from "../components/AttendanceModal";
+
 
 interface SubscriptionPrices {
   weekly: number;
@@ -32,6 +34,8 @@ export const Subscriptions = () => {
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeSubscription, setActiveSubscription] = useState<Subscription | null>(null);
+
   const { user } = useAuth();
   const [formData, setFormData] = useState({
     clientName: "",
@@ -95,44 +99,48 @@ export const Subscriptions = () => {
     }
   };
 
-  const fetchSubscriptions = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("subscriptions")
-        .select(
-          `
-          *,
-          clients (
-            name
-          )
-        `
-        )
-        .order("created_at", { ascending: false });
+const fetchSubscriptions = async () => {
+  try {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("subscriptions")
+      .select(`
+        *,
+        clients ( name ),
+        subscription_days ( id )  -- عدد الأيام المحضورة
+      `)
+      .order("created_at", { ascending: false });
 
-      if (error) throw error;
+    if (error) throw error;
 
-      const formattedSubscriptions = (data || []).map((sub) => ({
+    const formattedSubscriptions = (data || []).map((sub) => {
+      const usedDays = sub.subscription_days?.length || 0;
+      const remaining = Math.max(0, sub.total_days - usedDays);
+
+      return {
         id: sub.id,
         clientName: sub.clients.name,
         type: sub.type,
         startDate: new Date(sub.start_date),
         endDate: new Date(sub.end_date),
         price: sub.price,
-        status: calculateStatus(new Date(sub.end_date)),
         totalDays: sub.total_days,
-        remainingDays: calculateRemainingDays(new Date(sub.end_date)),
+        remainingDays: remaining,
         isFlexible: sub.is_flexible,
-      }));
+        status: remaining === 0 ? "منتهي" : "نشط",
+      };
+    });
 
-      setSubscriptions(formattedSubscriptions);
-    } catch (err) {
-      console.error("Error fetching subscriptions:", err);
-      setError("حدث خطأ أثناء تحميل الاشتراكات");
-    } finally {
-      setLoading(false);
-    }
-  };
+    setSubscriptions(formattedSubscriptions);
+  } catch (err) {
+    console.error("Error fetching subscriptions:", err);
+    setError("حدث خطأ أثناء تحميل الاشتراكات");
+  } finally {
+    setLoading(false);
+  }
+};
+
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -215,6 +223,8 @@ export const Subscriptions = () => {
               remaining_days: totalDays,
               is_flexible:
                 formData.type === "نصف شهري" ? formData.isFlexible : false,
+                      created_by: user.id, // ✅ إضافة هذه السطر
+
             },
           ]);
 
@@ -641,9 +651,12 @@ export const Subscriptions = () => {
                 <div className="flex flex-col gap-4">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h3 className="text-xl font-semibold text-white">
-                        {subscription.clientName}
-                      </h3>
+                <button
+  onClick={() => setActiveSubscription(subscription)}
+  className="text-xl font-semibold text-white text-right hover:underline"
+>
+  {subscription.clientName}
+</button>
                       <p className="text-slate-400 mt-1">
                         {subscription.type}
                         {subscription.isFlexible && " - أيام متفرقة"}
@@ -811,6 +824,15 @@ export const Subscriptions = () => {
           </div>
         )}
       </div>
+      {activeSubscription && (
+<AttendanceModal
+  subscriptionId={activeSubscription.id}
+  totalDays={activeSubscription.totalDays}
+  onClose={() => setActiveSubscription(null)}
+  onAttendanceMarked={fetchSubscriptions} // ✅ تمرير الدالة
+/>
+)}
+
     </div>
   );
 };

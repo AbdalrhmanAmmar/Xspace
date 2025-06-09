@@ -788,24 +788,28 @@ const calculateTotalAmount = (visit: Visit): number => {
     }
   };
 
-  const deleteAllVisits = async () => {
-    try {
-      setIsDeleting(true);
+const deleteAllVisits = async () => {
+  try {
+    setIsDeleting(true);
 
-      // استدعاء الدالة المخزنة
-      const { error } = await supabase.rpc("delete_all_visits");
+    const { error } = await supabase.rpc("safe_delete_all_visits", { confirm: true });
 
-      if (error) throw error;
-
-      setVisits([]);
-      setShowDeleteAllModal(false);
-      alert("تم الحذف بنجاح");
-    } catch (err) {
-      alert("حدث خطأ: " + err.message);
-    } finally {
-      setIsDeleting(false);
+    if (error) {
+      console.error("❌ خطأ من Supabase:", error);
+      throw error;
     }
-  };
+
+    setVisits([]);
+    setShowDeleteAllModal(false);
+    alert("✅ تم الحذف بنجاح");
+  } catch (err: any) {
+    alert("❌ حدث خطأ: " + err.message);
+  } finally {
+    setIsDeleting(false);
+  }
+};
+
+
 
 const filteredVisits = visits
   .filter((visit) =>
@@ -823,10 +827,7 @@ const filteredVisits = visits
   });
 
 
-  const handleSaleComplete = (total: number) => {
-    alert(`تمت عملية البيع بنجاح! الإجمالي: ${total} جنيه`);
-    // يمكنك هنا إضافة أي منطق إضافي تحتاجه بعد اكتمال البيع
-  };
+
 
   const formatCurrency = (amount: number) => {
     return `${amount.toLocaleString("ar-EG")} جنيه`;
@@ -834,7 +835,6 @@ const filteredVisits = visits
 
   return (
     <div className="min-h-screen bg-slate-900">
-    <div className="bg-red-900 text-center  py-6 px-4 text-white font-bold mx-6 rounded-md my-6 "> تنويه سوف يتم اغلاق هذا النظام من الغد للصيانه</div>
       <div className="max-w-6xl mx-auto p-6">
         <h1 className="text-3xl font-bold text-white mb-8 text-center">
           إدارة الزيارات
@@ -1277,15 +1277,11 @@ const filteredVisits = visits
                             filteredProducts.map((product) => (
                               <div
                                 key={product.id}
-                                onClick={() => {
-                                  setNewProductId(product.id);
-                                  setProductSearchTerm(
-                                    `${product.name} - ${formatCurrency(
-                                      product.price
-                                    )}`
-                                  );
-                                  setIsProductDropdownOpen(false);
-                                }}
+                              onMouseDown={() => {
+  setNewProductId(product.id);
+  setProductSearchTerm(`${product.name} - ${formatCurrency(product.price)}`);
+  setIsProductDropdownOpen(false);
+}}
                                 className="px-4 py-2 hover:bg-slate-700 cursor-pointer flex justify-between text-white"
                               >
                                 <span>{product.name}</span>
@@ -1499,7 +1495,7 @@ const filteredVisits = visits
         isOpen={isSaleModalOpen}
         onClose={() => setIsSaleModalOpen(false)}
         products={products}
-        onSaleComplete={handleSaleComplete}
+        
       />
       {showDeleteAllModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">

@@ -18,27 +18,9 @@ interface RevenueByPeriod {
 
 function Profits() {
   const [revenue, setRevenue] = useState<RevenueByPeriod>({
-    daily: {
-      hourlyRevenue: 0,
-      subscriptionRevenue: 0,
-      reservationRevenue: 0,
-      productRevenue: 0,
-      totalRevenue: 0,
-    },
-    weekly: {
-      hourlyRevenue: 0,
-      subscriptionRevenue: 0,
-      reservationRevenue: 0,
-      productRevenue: 0,
-      totalRevenue: 0,
-    },
-    monthly: {
-      hourlyRevenue: 0,
-      subscriptionRevenue: 0,
-      reservationRevenue: 0,
-      productRevenue: 0,
-      totalRevenue: 0,
-    },
+    daily: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0 },
+    weekly: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0 },
+    monthly: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0 },
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,78 +34,49 @@ function Profits() {
       setLoading(true);
       setError(null);
 
-      // Get current date ranges
       const now = new Date();
-      const startOfDay = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate()
-      ).toISOString();
-      const startOfWeek = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() - now.getDay()
-      ).toISOString();
-      const startOfMonth = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        1
-      ).toISOString();
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-      // Fetch visits revenue (hourly)
-      const { data: visitsData, error: visitsError } = await supabase
-        .from("visits")
-        .select("total_amount, created_at");
+      const { data: visitsData } = await supabase.from("visits").select("total_amount, created_at");
+      const { data: deletedVisitsData } = await supabase.from("deleted_visit").select("total_amount, start_time");
+      const allVisitsData = [...(visitsData || []), ...(deletedVisitsData?.map(v => ({
+        total_amount: v.total_amount,
+        created_at: v.start_time
+      })) || [])];
 
-      if (visitsError) throw visitsError;
+      const { data: subscriptionsData } = await supabase.from("subscriptions").select("price, created_at");
+      const { data: reservationsData } = await supabase.from("reservations").select("total_price, created_at");
 
-      // Fetch subscriptions revenue
-      const { data: subscriptionsData, error: subscriptionsError } =
-        await supabase.from("subscriptions").select("price, created_at");
+      const { data: visitProductsData } = await supabase.from("visit_products").select("price, quantity, created_at");
+      const { data: deletedVisitProductsData } = await supabase.from("deleted_visit_products").select("price, quantity, created_at");
+      const { data: productSalesData } = await supabase.from("product_sales").select("price, quantity, created_at");
 
-      if (subscriptionsError) throw subscriptionsError;
+      const allProductsData = [
+        ...(visitProductsData || []),
+        ...(deletedVisitProductsData || []),
+        ...(productSalesData || [])
+      ];
 
-      // Fetch reservations revenue
-      const { data: reservationsData, error: reservationsError } =
-        await supabase.from("reservations").select("total_price, created_at");
+      const calculatePeriodRevenue = (startDate: Date) => {
+        const sumByDate = (items: any[], valueKey: string, dateKey: string) =>
+          items?.filter((item) => new Date(item[dateKey]) >= startDate)
+                .reduce((sum, item) => sum + (item[valueKey] || 0), 0) || 0;
 
-      if (reservationsError) throw reservationsError;
+        const productSum = allProductsData?.filter(p => new Date(p.created_at) >= startDate)
+          .reduce((sum, p) => sum + ((p.price || 0) * (p.quantity || 1)), 0) || 0;
 
-      // Fetch products revenue
-      const { data: salesData, error: salesError } = await supabase
-        .from("visit_products")
-        .select("price, quantity, created_at");
-
-      if (salesError) throw salesError;
-
-      // Calculate revenue for each period
-      const calculatePeriodRevenue = (startDate: string) => {
-        const visits =
-          visitsData
-            ?.filter((v) => new Date(v.created_at) >= new Date(startDate))
-            .reduce((sum, v) => sum + (v.total_amount || 0), 0) || 0;
-
-        const subscriptions =
-          subscriptionsData
-            ?.filter((s) => new Date(s.created_at) >= new Date(startDate))
-            .reduce((sum, s) => sum + (s.price || 0), 0) || 0;
-
-        const reservations =
-          reservationsData
-            ?.filter((r) => new Date(r.created_at) >= new Date(startDate))
-            .reduce((sum, r) => sum + (r.total_price || 0), 0) || 0;
-
-        const products =
-          salesData
-            ?.filter((s) => new Date(s.created_at) >= new Date(startDate))
-            .reduce((sum, s) => sum + s.price * s.quantity, 0) || 0;
+        const visits = sumByDate(allVisitsData, "total_amount", "created_at");
+        const subscriptions = sumByDate(subscriptionsData || [], "price", "created_at");
+        const reservations = sumByDate(reservationsData || [], "total_price", "created_at");
 
         return {
           hourlyRevenue: visits,
           subscriptionRevenue: subscriptions,
           reservationRevenue: reservations,
-          productRevenue: products,
-          totalRevenue: visits + subscriptions + reservations + products,
+          productRevenue: productSum,
+          totalRevenue: visits + subscriptions + reservations + productSum,
         };
       };
 
@@ -140,21 +93,9 @@ function Profits() {
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return `${amount.toLocaleString("ar-EG")} جنيه`;
-  };
+  const formatCurrency = (amount: number) => `${amount.toLocaleString("ar-EG")} جنيه`;
 
-  const RevenueCard = ({
-    title,
-    icon: Icon,
-    amount,
-    color,
-  }: {
-    title: string;
-    icon: any;
-    amount: number;
-    color: string;
-  }) => (
+  const RevenueCard = ({ title, icon: Icon, amount, color }: { title: string; icon: any; amount: number; color: string }) => (
     <div className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20">
       <div className="flex items-center gap-4">
         <div className={`p-3 rounded-lg ${color}`}>
@@ -162,9 +103,7 @@ function Profits() {
         </div>
         <div>
           <h3 className="text-sm font-medium text-slate-400">{title}</h3>
-          <p className="text-2xl font-bold text-white mt-1">
-            {formatCurrency(amount)}
-          </p>
+          <p className="text-2xl font-bold text-white mt-1">{formatCurrency(amount)}</p>
         </div>
       </div>
     </div>
@@ -174,37 +113,12 @@ function Profits() {
     <div className="space-y-6">
       <h2 className="text-xl font-semibold text-white">{title}</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <RevenueCard
-          title="إيرادات الساعات"
-          icon={Users}
-          amount={data.hourlyRevenue}
-          color="bg-blue-600"
-        />
-        <RevenueCard
-          title="إيرادات الاشتراكات"
-          icon={CreditCard}
-          amount={data.subscriptionRevenue}
-          color="bg-green-600"
-        />
-        <RevenueCard
-          title="إيرادات الحجوزات"
-          icon={Calendar}
-          amount={data.reservationRevenue}
-          color="bg-purple-600"
-        />
-        <RevenueCard
-          title="إيرادات المنتجات"
-          icon={Package}
-          amount={data.productRevenue}
-          color="bg-orange-600"
-        />
+        <RevenueCard title="إيرادات الساعات" icon={Users} amount={data.hourlyRevenue} color="bg-blue-600" />
+        <RevenueCard title="إيرادات الاشتراكات" icon={CreditCard} amount={data.subscriptionRevenue} color="bg-green-600" />
+        <RevenueCard title="إيرادات الحجوزات" icon={Calendar} amount={data.reservationRevenue} color="bg-purple-600" />
+        <RevenueCard title="إيرادات المنتجات" icon={Package} amount={data.productRevenue} color="bg-orange-600" />
         <div className="md:col-span-2 lg:col-span-3">
-          <RevenueCard
-            title="إجمالي الإيرادات"
-            icon={DollarSign}
-            amount={data.totalRevenue}
-            color="bg-emerald-600"
-          />
+          <RevenueCard title="إجمالي الإيرادات" icon={DollarSign} amount={data.totalRevenue} color="bg-emerald-600" />
         </div>
       </div>
     </div>
@@ -213,16 +127,8 @@ function Profits() {
   return (
     <div className="min-h-screen bg-slate-900">
       <div className="max-w-7xl mx-auto p-6">
-        <h1 className="text-3xl font-bold text-white mb-8">
-          الأرباح والإيرادات
-        </h1>
-
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-lg mb-6">
-            {error}
-          </div>
-        )}
-
+        <h1 className="text-3xl font-bold text-white mb-8">الأرباح والإيرادات</h1>
+        {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-lg mb-6">{error}</div>}
         {loading ? (
           <div className="text-center py-12">
             <p className="text-xl text-slate-400">جاري تحميل البيانات...</p>

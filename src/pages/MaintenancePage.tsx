@@ -13,6 +13,9 @@ export const MaintenancePage = () => {
           <p className="text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto">
             نقوم حاليًا بإجراء بعض التحديثات على الموقع لتحسين تجربتك. نعتذر عن أي إزعاج وسنعود قريبًا!
           </p>
+          <p className="text-xl text-black bg-yellow-400 font-bold  py-4 px-4 rounded-md max-w-2xl mx-auto">
+            سوف يكون جاهزًاللاستعمال يوم السبت القادم
+          </p>
         </div>
 
         <div className="bg-white dark:bg-slate-800 rounded-xl p-8 border border-slate-200 dark:border-slate-700 max-w-3xl mx-auto">

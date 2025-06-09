@@ -1,23 +1,22 @@
 import React, { useState, useEffect } from "react";
-import { Wrench, Plus, X } from "lucide-react";
+import { Wrench, Plus, X, Calendar, Filter } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 
-interface Maintenance {
+interface Expense {
   id: string;
   description: string;
-  cost: number;
+  amount: number;
   date: Date;
+  category: "maintenance" | "daily_expenses" | "salaries";
 }
 
 interface Revenue {
   total: number;
 }
 
-const Maintenances = () => {
-  const [maintenanceRecords, setMaintenanceRecords] = useState<Maintenance[]>(
-    []
-  );
+const Expenses = () => {
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [totalRevenue, setTotalRevenue] = useState<number>(0);
   const [showAddForm, setShowAddForm] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -25,36 +24,48 @@ const Maintenances = () => {
   const { user } = useAuth();
   const [formData, setFormData] = useState({
     description: "",
-    cost: "",
+    amount: "",
     date: new Date().toISOString().split("T")[0],
+    category: "maintenance" as "maintenance" | "daily_expenses" | "salaries",
+  });
+  const [filter, setFilter] = useState({
+    year: new Date().getFullYear(),
+    month: new Date().getMonth() + 1,
   });
 
   useEffect(() => {
     if (user) {
-      fetchMaintenanceRecords();
+      fetchExpenses();
       fetchTotalRevenue();
     }
-  }, [user]);
+  }, [user, filter.year, filter.month]);
 
-  const fetchMaintenanceRecords = async () => {
+  const fetchExpenses = async () => {
     try {
       setLoading(true);
+      
+      // Create date range for the selected month and year
+      const startDate = new Date(filter.year, filter.month - 1, 1).toISOString();
+      const endDate = new Date(filter.year, filter.month, 0).toISOString();
+      
       const { data, error } = await supabase
-        .from("maintenance")
+        .from("expenses")
         .select("*")
+        .gte("date", startDate)
+        .lte("date", endDate)
         .order("date", { ascending: false });
 
       if (error) throw error;
 
-      setMaintenanceRecords(
+      setExpenses(
         data.map((record) => ({
           ...record,
           date: new Date(record.date),
         }))
       );
     } catch (err) {
-      console.error("Error fetching maintenance records:", err);
-      setError("حدث خطأ أثناء تحميل سجلات الصيانة");
+      console.error("Error fetching expenses:", err);
+      setError("حدث خطأ أثناء تحميل السجلات");
     } finally {
       setLoading(false);
     }
@@ -114,39 +125,72 @@ const Maintenances = () => {
       setLoading(true);
       setError(null);
 
-      const { error } = await supabase.from("maintenance").insert([
+      const { error } = await supabase.from("expenses").insert([
         {
           description: formData.description,
-          cost: Number(formData.cost),
+          amount: Number(formData.amount),
           date: new Date(formData.date).toISOString(),
+          category: formData.category,
         },
       ]);
 
       if (error) throw error;
 
-      await fetchMaintenanceRecords();
+      await fetchExpenses();
       setFormData({
         description: "",
-        cost: "",
+        amount: "",
         date: new Date().toISOString().split("T")[0],
+        category: "maintenance",
       });
       setShowAddForm(false);
     } catch (err: any) {
-      console.error("Error saving maintenance record:", err);
-      setError(err.message || "حدث خطأ أثناء حفظ سجل الصيانة");
-    } finally {
+      console.error("Error saving expense record:", err);
+ setError(err?.message || JSON.stringify(err) || "حدث خطأ أثناء حفظ السجل");    } finally {
       setLoading(false);
     }
   };
 
-  const totalMaintenanceCost = maintenanceRecords.reduce(
-    (sum, record) => sum + record.cost,
-    0
-  );
-  const netProfit = totalRevenue - totalMaintenanceCost;
+  const getCategoryTotal = (category: string) => {
+    return expenses
+      .filter((expense) => expense.category === category)
+      .reduce((sum, record) => sum + record.amount, 0);
+  };
+
+  const totalMaintenance = getCategoryTotal("maintenance");
+  const totalDailyExpenses = getCategoryTotal("daily_expenses");
+  const totalSalaries = getCategoryTotal("salaries");
+  const totalExpenses = expenses.reduce((sum, record) => sum + record.amount, 0);
+  const netProfit = totalRevenue - totalExpenses;
 
   const formatCurrency = (amount: number) => {
     return `${amount.toLocaleString("ar-EG")} جنيه`;
+  };
+
+  const getCategoryName = (category: string) => {
+    switch (category) {
+      case "maintenance":
+        return "صيانة";
+      case "daily_expenses":
+        return "مصروف يومي";
+      case "salaries":
+        return "مرتبات";
+      default:
+        return category;
+    }
+  };
+
+  const getCategoryColor = (category: string) => {
+    switch (category) {
+      case "maintenance":
+        return "text-blue-400";
+      case "daily_expenses":
+        return "text-yellow-400";
+      case "salaries":
+        return "text-purple-400";
+      default:
+        return "text-white";
+    }
   };
 
   if (!user) {
@@ -157,20 +201,37 @@ const Maintenances = () => {
     );
   }
 
+  // Generate years and months for filter
+  const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
+  const months = [
+    { value: 1, name: "يناير" },
+    { value: 2, name: "فبراير" },
+    { value: 3, name: "مارس" },
+    { value: 4, name: "أبريل" },
+    { value: 5, name: "مايو" },
+    { value: 6, name: "يونيو" },
+    { value: 7, name: "يوليو" },
+    { value: 8, name: "أغسطس" },
+    { value: 9, name: "سبتمبر" },
+    { value: 10, name: "أكتوبر" },
+    { value: 11, name: "نوفمبر" },
+    { value: 12, name: "ديسمبر" },
+  ];
+
   return (
     <div className="min-h-screen bg-slate-900">
       <div className="max-w-6xl mx-auto p-6">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
             <Wrench className="h-8 w-8 text-blue-400" />
-            الصيانة
+            المصروفات
           </h1>
           <button
             onClick={() => setShowAddForm(true)}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
           >
             <Plus className="h-5 w-5" />
-            إضافة صيانة
+            إضافة مصروف
           </button>
         </div>
 
@@ -180,8 +241,40 @@ const Maintenances = () => {
           </div>
         )}
 
+        {/* Filter Section */}
+        <div className="bg-white/10 backdrop-blur-lg p-4 rounded-xl border border-white/20 mb-6">
+          <div className="flex items-center gap-4">
+            <Filter className="h-5 w-5 text-slate-400" />
+            <h3 className="text-sm font-medium text-slate-400">تصفية حسب:</h3>
+            
+            <select
+              value={filter.year}
+              onChange={(e) => setFilter({...filter, year: parseInt(e.target.value)})}
+              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-1 text-white"
+            >
+              {years.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+            
+            <select
+              value={filter.month}
+              onChange={(e) => setFilter({...filter, month: parseInt(e.target.value)})}
+              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-1 text-white"
+            >
+              {months.map((month) => (
+                <option key={month.value} value={month.value}>
+                  {month.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20">
             <h3 className="text-sm font-medium text-slate-400 mb-2">
               إجمالي الإيرادات
@@ -192,10 +285,10 @@ const Maintenances = () => {
           </div>
           <div className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20">
             <h3 className="text-sm font-medium text-slate-400 mb-2">
-              تكاليف الصيانة
+              إجمالي المصروفات
             </h3>
             <p className="text-2xl font-bold text-red-400">
-              {formatCurrency(totalMaintenanceCost)}
+              {formatCurrency(totalExpenses)}
             </p>
           </div>
           <div className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20">
@@ -206,15 +299,51 @@ const Maintenances = () => {
               {formatCurrency(netProfit)}
             </p>
           </div>
+          <div className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20">
+            <h3 className="text-sm font-medium text-slate-400 mb-2">
+              الفترة المحددة
+            </h3>
+            <p className="text-xl font-bold text-white">
+              {months.find(m => m.value === filter.month)?.name} {filter.year}
+            </p>
+          </div>
         </div>
 
-        {/* Add Maintenance Form Modal */}
+        {/* Category Breakdown */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-blue-500/10 backdrop-blur-lg p-6 rounded-xl border border-blue-500/20">
+            <h3 className="text-sm font-medium text-blue-400 mb-2">
+              إجمالي الصيانة
+            </h3>
+            <p className="text-2xl font-bold text-blue-400">
+              {formatCurrency(totalMaintenance)}
+            </p>
+          </div>
+          <div className="bg-yellow-500/10 backdrop-blur-lg p-6 rounded-xl border border-yellow-500/20">
+            <h3 className="text-sm font-medium text-yellow-400 mb-2">
+              إجمالي المصروف اليومي
+            </h3>
+            <p className="text-2xl font-bold text-yellow-400">
+              {formatCurrency(totalDailyExpenses)}
+            </p>
+          </div>
+          <div className="bg-purple-500/10 backdrop-blur-lg p-6 rounded-xl border border-purple-500/20">
+            <h3 className="text-sm font-medium text-purple-400 mb-2">
+              إجمالي المرتبات
+            </h3>
+            <p className="text-2xl font-bold text-purple-400">
+              {formatCurrency(totalSalaries)}
+            </p>
+          </div>
+        </div>
+
+        {/* Add Expense Form Modal */}
         {showAddForm && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
             <div className="bg-slate-800 rounded-xl p-6 w-full max-w-md border border-slate-700">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-semibold text-white">
-                  إضافة سجل صيانة
+                  إضافة مصروف جديد
                 </h2>
                 <button
                   onClick={() => setShowAddForm(false)}
@@ -226,7 +355,7 @@ const Maintenances = () => {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">
-                    وصف الصيانة
+                    وصف المصروف
                   </label>
                   <input
                     type="text"
@@ -242,13 +371,13 @@ const Maintenances = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">
-                    التكلفة (جنيه)
+                    المبلغ (جنيه)
                   </label>
                   <input
                     type="number"
-                    value={formData.cost}
+                    value={formData.amount}
                     onChange={(e) =>
-                      setFormData({ ...formData, cost: e.target.value })
+                      setFormData({ ...formData, amount: e.target.value })
                     }
                     className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     min="0"
@@ -256,6 +385,27 @@ const Maintenances = () => {
                     required
                     dir="rtl"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    التصنيف
+                  </label>
+                  <select
+                    value={formData.category}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        category: e.target.value as any,
+                      })
+                    }
+                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  >
+                    <option value="maintenance">صيانة</option>
+                    <option value="daily_expenses">مصروف يومي</option>
+                    <option value="salaries">مرتبات</option>
+                  </select>
                 </div>
 
                 <div>
@@ -285,32 +435,37 @@ const Maintenances = () => {
           </div>
         )}
 
-        {/* Maintenance Records */}
+        {/* Expenses Records */}
         <div className="space-y-4">
-          {maintenanceRecords.map((record) => (
+          {expenses.map((expense) => (
             <div
-              key={record.id}
+              key={expense.id}
               className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20"
             >
               <div className="flex justify-between items-start">
                 <div>
-                  <h3 className="text-xl font-semibold text-white">
-                    {record.description}
-                  </h3>
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-xl font-semibold text-white">
+                      {expense.description}
+                    </h3>
+                    <span className={`text-sm px-2 py-1 rounded-full ${getCategoryColor(expense.category)} bg-opacity-20`}>
+                      {getCategoryName(expense.category)}
+                    </span>
+                  </div>
                   <p className="text-slate-400 mt-2">
-                    {record.date.toLocaleDateString("ar-SA")}
+                    {expense.date.toLocaleDateString("ar-SA")}
                   </p>
                 </div>
                 <p className="text-xl font-bold text-red-400">
-                  {formatCurrency(record.cost)}
+                  {formatCurrency(expense.amount)}
                 </p>
               </div>
             </div>
           ))}
 
-          {!loading && maintenanceRecords.length === 0 && (
+          {!loading && expenses.length === 0 && (
             <div className="text-center py-12">
-              <p className="text-xl text-slate-400">لا توجد سجلات صيانة</p>
+              <p className="text-xl text-slate-400">لا توجد سجلات مصروفات</p>
             </div>
           )}
         </div>
@@ -318,4 +473,5 @@ const Maintenances = () => {
     </div>
   );
 };
-export default Maintenances;
+
+export default Expenses;

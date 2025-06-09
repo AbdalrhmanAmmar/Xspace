@@ -13,6 +13,8 @@
 // import Profits from "./pages/Profits";
 // import Maintenances from "./pages/Maintenances";
 // import Poot from "./pages/Poot";
+// import DeletedVisitsList from "./pages/DeletedVisitsList";
+// import AttendanceForm from "./pages/AttendanceForm";
 
 import { MaintenancePage } from "./pages/MaintenancePage";
 
@@ -111,12 +113,34 @@ function App() {
     //             </ProtectedRoute>
     //           }
     //         />
+    //         <Route
+    //           path="/DeletedVisitsList"
+    //           element={
+    //             <ProtectedRoute>
+    //               <>
+    //                 <Navbar />
+    //                 <DeletedVisitsList />
+    //               </>
+    //             </ProtectedRoute>
+    //           }
+    //         />
+    //         <Route
+    //           path="/AttendanceForm"
+    //           element={
+    //             <ProtectedRoute>
+    //               <>
+    //                 <Navbar />
+    //                 <AttendanceForm />
+    //               </>
+    //             </ProtectedRoute>
+    //           }
+    //         />
     //       </Routes>
     //     </Router>
     //   </ProductProvider>
     // </AuthProvider>
     <>
-    <MaintenancePage />
+    <MaintenancePage/>
     </>
   );
 }

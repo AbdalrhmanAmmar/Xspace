@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Trash2, X, Settings, Check } from "lucide-react";
+import { Trash2, X, Settings, Check, Calendar } from "lucide-react";
 import { DbReservation, HALLS } from "../types/client";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
@@ -7,37 +7,33 @@ import { useAuth } from "../contexts/AuthContext";
 interface HallPrices {
   largeHall: number;
   smallHall: number;
-  normalVisit: number; // Added for normal visit price
 }
 
 export const Reservations = () => {
   const [reservations, setReservations] = useState<DbReservation[]>([]);
+  const [filteredReservations, setFilteredReservations] = useState<DbReservation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const { user } = useAuth();
-  const [selectedType, setSelectedType] = useState<
-    "large" | "small" | "normal"
-  >("large"); // New state for visit type
+  const [selectedType, setSelectedType] = useState<"large" | "small">("large");
   const [formData, setFormData] = useState({
     clientName: "",
-    date: "",
+   ate: "", d
     time: "",
     durationRange: "60",
     hallName: HALLS.LARGE,
     deposit: "",
-    visitType: "large", // Added to formData
   });
   const [prices, setPrices] = useState<HallPrices>({
     largeHall: 90,
     smallHall: 45,
-    normalVisit: 30, // Default price for normal visit (configurable)
   });
   const [priceFormData, setPriceFormData] = useState<HallPrices>({
     largeHall: 90,
     smallHall: 45,
-    normalVisit: 30,
   });
+  const [weekFilter, setWeekFilter] = useState<string>("all");
 
   useEffect(() => {
     if (user) {
@@ -45,6 +41,33 @@ export const Reservations = () => {
       fetchPrices();
     }
   }, [user]);
+
+  useEffect(() => {
+    filterReservations();
+  }, [reservations, weekFilter]);
+
+  const filterReservations = () => {
+    if (weekFilter === "all") {
+      setFilteredReservations(reservations);
+      return;
+    }
+
+    const filtered = reservations.filter(reservation => {
+      const date = new Date(`${reservation.date}T${reservation.time}`);
+      const dayOfWeek = date.getDay(); // 0 for Sunday, 1 for Monday, etc.
+      
+      // Convert to Arabic week days (0=الأحد, 1=الإثنين, etc.)
+      return (weekFilter === "0" && dayOfWeek === 0) || 
+             (weekFilter === "1" && dayOfWeek === 1) ||
+             (weekFilter === "2" && dayOfWeek === 2) ||
+             (weekFilter === "3" && dayOfWeek === 3) ||
+             (weekFilter === "4" && dayOfWeek === 4) ||
+             (weekFilter === "5" && dayOfWeek === 5) ||
+             (weekFilter === "6" && dayOfWeek === 6);
+    });
+
+    setFilteredReservations(filtered);
+  };
 
   const fetchPrices = async () => {
     try {
@@ -55,12 +78,10 @@ export const Reservations = () => {
 
       if (error) {
         if (error.code === "PGRST116") {
-          // No prices found, create default prices
           await supabase.from("hall_prices").insert([
             {
               large_hall_price: 90,
               small_hall_price: 45,
-              normal_visit_price: 30, // Add normal visit price to DB
             },
           ]);
         } else {
@@ -70,12 +91,10 @@ export const Reservations = () => {
         setPrices({
           largeHall: data.large_hall_price,
           smallHall: data.small_hall_price,
-          normalVisit: data.normal_visit_price || 30, // Fallback to default
         });
         setPriceFormData({
           largeHall: data.large_hall_price,
           smallHall: data.small_hall_price,
-          normalVisit: data.normal_visit_price || 30,
         });
       }
     } catch (err) {
@@ -113,7 +132,6 @@ export const Reservations = () => {
         hallName: res.hall_name,
         deposit: res.deposit_amount,
         totalPrice: res.total_price,
-        visitType: res.visit_type || "large", // Include visit type
       }));
 
       setReservations(formattedReservations);
@@ -122,6 +140,22 @@ export const Reservations = () => {
       setError("حدث خطأ أثناء تحميل الحجوزات");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const checkTimeConflict = async (startTime: string, endTime: string, hallName: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("reservations")
+        .select("*")
+        .eq("hall_name", hallName)
+        .or(`and(start_time.lte.${endTime},end_time.gte.${startTime})`);
+
+      if (error) throw error;
+      return (data && data.length > 0);
+    } catch (err) {
+      console.error("Error checking time conflict:", err);
+      return true; // To be safe, assume conflict if there's an error
     }
   };
 
@@ -135,6 +169,25 @@ export const Reservations = () => {
     try {
       setLoading(true);
       setError(null);
+
+      // Calculate reservation details
+      const startDateTime = new Date(`${formData.date}T${formData.time}`);
+      const durationInMinutes = parseInt(formData.durationRange);
+      const endDateTime = new Date(
+        startDateTime.getTime() + durationInMinutes * 60000
+      );
+
+      // Check for time conflict
+      const hasConflict = await checkTimeConflict(
+        startDateTime.toISOString(),
+        endDateTime.toISOString(),
+        formData.hallName
+      );
+
+      if (hasConflict) {
+        setError("هذا الموعد محجوز بالفعل، يرجى اختيار موعد آخر");
+        return;
+      }
 
       // Create or get client
       const { data: clientData, error: clientError } = await supabase
@@ -163,34 +216,8 @@ export const Reservations = () => {
         clientId = existingClient.id;
       }
 
-      // Calculate reservation details
-      const startDateTime = new Date(`${formData.date}T${formData.time}`);
-      const durationInMinutes = parseInt(formData.durationRange);
-      const endDateTime = new Date(
-        startDateTime.getTime() + durationInMinutes * 60000
-      );
-
-      // Determine price based on visit type
-      let hallPrice: number;
-      let hallName: string;
-      switch (formData.visitType) {
-        case "large":
-          hallPrice = prices.largeHall;
-          hallName = HALLS.LARGE;
-          break;
-        case "small":
-          hallPrice = prices.smallHall;
-          hallName = HALLS.SMALL;
-          break;
-        case "normal":
-          hallPrice = prices.normalVisit;
-          hallName = "زيارة عادية"; // Adjust as needed
-          break;
-        default:
-          hallPrice = prices.largeHall;
-          hallName = HALLS.LARGE;
-      }
-
+      // Determine price
+      const hallPrice = formData.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall;
       const totalPrice = (hallPrice / 60) * durationInMinutes;
 
       // Create reservation
@@ -199,14 +226,13 @@ export const Reservations = () => {
         .insert([
           {
             client_id: clientId,
-            hall_name: hallName,
+            hall_name: formData.hallName,
             start_time: startDateTime.toISOString(),
             end_time: endDateTime.toISOString(),
             duration_minutes: durationInMinutes,
             total_price: totalPrice,
             deposit_amount: Number(formData.deposit) || 0,
             status: "active",
-            visit_type: formData.visitType, // Save visit type
           },
         ]);
 
@@ -220,7 +246,6 @@ export const Reservations = () => {
         durationRange: "60",
         hallName: HALLS.LARGE,
         deposit: "",
-        visitType: "large",
       });
       setSelectedType("large");
     } catch (err: any) {
@@ -265,7 +290,6 @@ export const Reservations = () => {
         .update({
           large_hall_price: priceFormData.largeHall,
           small_hall_price: priceFormData.smallHall,
-          normal_visit_price: priceFormData.normalVisit,
         })
         .eq("id", 1);
 
@@ -292,23 +316,10 @@ export const Reservations = () => {
   };
 
   const calculateTotalPrice = (
-    visitType: "large" | "small" | "normal",
+    hallName: string,
     durationInMinutes: number
   ) => {
-    let hallPrice: number;
-    switch (visitType) {
-      case "large":
-        hallPrice = prices.largeHall;
-        break;
-      case "small":
-        hallPrice = prices.smallHall;
-        break;
-      case "normal":
-        hallPrice = prices.normalVisit;
-        break;
-      default:
-        hallPrice = prices.largeHall;
-    }
+    const hallPrice = hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall;
     return (hallPrice / 60) * durationInMinutes;
   };
 
@@ -317,6 +328,19 @@ export const Reservations = () => {
     if (percentage <= 33) return "#22c55e"; // green-500
     if (percentage <= 66) return "#eab308"; // yellow-500
     return "#ef4444"; // red-500
+  };
+
+  const getDayName = (dayIndex: string) => {
+    const days = {
+      "0": "الأحد",
+      "1": "الإثنين",
+      "2": "الثلاثاء",
+      "3": "الأربعاء",
+      "4": "الخميس",
+      "5": "الجمعة",
+      "6": "السبت"
+    };
+    return days[dayIndex as keyof typeof days] || "الكل";
   };
 
   if (!user) {
@@ -347,7 +371,6 @@ export const Reservations = () => {
           </div>
         )}
 
-        {/* Settings Modal */}
         {showSettings && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
             <div className="bg-slate-800 rounded-xl p-6 w-full max-w-md border border-slate-700">
@@ -396,25 +419,6 @@ export const Reservations = () => {
                       setPriceFormData({
                         ...priceFormData,
                         smallHall: Number(e.target.value),
-                      })
-                    }
-                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    min="0"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    سعر الزيارة العادية (بالساعة)
-                  </label>
-                  <input
-                    type="number"
-                    value={priceFormData.normalVisit}
-                    onChange={(e) =>
-                      setPriceFormData({
-                        ...priceFormData,
-                        normalVisit: Number(e.target.value),
                       })
                     }
                     className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -529,7 +533,7 @@ export const Reservations = () => {
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-blue-200 mb-2">
-                اختار نوع الزيارة
+                اختار نوع القاعة
               </label>
               <div className="flex gap-3">
                 <button
@@ -538,7 +542,6 @@ export const Reservations = () => {
                     setSelectedType("large");
                     setFormData({
                       ...formData,
-                      visitType: "large",
                       hallName: HALLS.LARGE,
                     });
                   }}
@@ -558,7 +561,6 @@ export const Reservations = () => {
                     setSelectedType("small");
                     setFormData({
                       ...formData,
-                      visitType: "small",
                       hallName: HALLS.SMALL,
                     });
                   }}
@@ -570,26 +572,6 @@ export const Reservations = () => {
                   disabled={loading}
                 >
                   قاعة صغيرة - {formatCurrency(prices.smallHall)}/ساعة
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedType("normal");
-                    setFormData({
-                      ...formData,
-                      visitType: "normal",
-                      hallName: "زيارة عادية",
-                    });
-                  }}
-                  className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
-                    selectedType === "normal"
-                      ? "bg-blue-600 text-white border-blue-700"
-                      : "bg-slate-800 text-blue-200 border-slate-600 hover:bg-slate-700"
-                  }`}
-                  disabled={loading}
-                >
-                  زيارة عادية - {formatCurrency(prices.normalVisit)}/ساعة
                 </button>
               </div>
             </div>
@@ -617,18 +599,14 @@ export const Reservations = () => {
               <p className="text-blue-200">
                 سعر الساعة:{" "}
                 {formatCurrency(
-                  formData.visitType === "large"
-                    ? prices.largeHall
-                    : formData.visitType === "small"
-                    ? prices.smallHall
-                    : prices.normalVisit
+                  formData.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall
                 )}
               </p>
               <p className="text-white font-bold mt-2">
                 التكلفة الإجمالية:{" "}
                 {formatCurrency(
                   calculateTotalPrice(
-                    formData.visitType as "large" | "small" | "normal",
+                    formData.hallName,
                     parseInt(formData.durationRange)
                   )
                 )}
@@ -645,8 +623,41 @@ export const Reservations = () => {
           </form>
         </div>
 
+        {/* Weekday Filter */}
+        <div className="mb-6 bg-slate-800/50 p-4 rounded-lg">
+          <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            تصفية حسب اليوم
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setWeekFilter("all")}
+              className={`px-3 py-1 rounded-lg text-sm ${
+                weekFilter === "all"
+                  ? "bg-blue-600 text-white"
+                  : "bg-slate-700 text-blue-200 hover:bg-slate-600"
+              }`}
+            >
+              الكل
+            </button>
+            {["0", "1", "2", "3", "4", "5", "6"].map((day) => (
+              <button
+                key={day}
+                onClick={() => setWeekFilter(day)}
+                className={`px-3 py-1 rounded-lg text-sm ${
+                  weekFilter === day
+                    ? "bg-blue-600 text-white"
+                    : "bg-slate-700 text-blue-200 hover:bg-slate-600"
+                }`}
+              >
+                {getDayName(day)}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="space-y-4">
-          {reservations.map((reservation) => (
+          {filteredReservations.map((reservation) => (
             <div
               key={reservation.id}
               className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20"
@@ -667,14 +678,6 @@ export const Reservations = () => {
                       )}
                     </p>
                     <p className="text-blue-200">{reservation.hallName}</p>
-                    <p className="text-blue-200">
-                      نوع الزيارة:{" "}
-                      {reservation.visitType === "large"
-                        ? "قاعة كبيرة"
-                        : reservation.visitType === "small"
-                        ? "قاعة صغيرة"
-                        : "زيارة عادية"}
-                    </p>
                   </div>
                   <div className="mt-4 pt-4 border-t border-slate-700">
                     <p className="text-white">
@@ -702,7 +705,7 @@ export const Reservations = () => {
             </div>
           ))}
 
-          {!loading && reservations.length === 0 && (
+          {!loading && filteredReservations.length === 0 && (
             <div className="text-center py-12">
               <p className="text-xl text-slate-400">لا توجد حجوزات حالياً</p>
             </div>
