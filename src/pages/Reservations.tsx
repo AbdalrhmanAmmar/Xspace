@@ -19,7 +19,7 @@ export const Reservations = () => {
   const [selectedType, setSelectedType] = useState<"large" | "small">("large");
   const [formData, setFormData] = useState({
     clientName: "",
-   ate: "", d
+   ate: "", 
     time: "",
     durationRange: "60",
     hallName: HALLS.LARGE,

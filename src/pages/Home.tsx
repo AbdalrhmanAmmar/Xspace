@@ -8,15 +8,23 @@ import {
   CreditCard,
   DollarSign,
   Construction,
+  FolderArchive,
+  SquareUserRound,
+  Crown,
+  AlarmClockMinus,
 } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
 
 export const Home = () => {
+  const { user } = useAuth();
+  
+  const isAdmin = user?.username == "x@spaces.com";
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold text-slate-900 dark:text-white mb-4">
-            مرحباً بك في x-sace
+            مرحباً بك في x-space
           </h1>
         </div>
 
@@ -35,7 +43,8 @@ export const Home = () => {
             </p>
           </Link>
 
-          <Link
+          {isAdmin && (
+    <Link
             to="/clients-list"
             className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
           >
@@ -47,6 +56,9 @@ export const Home = () => {
               عرض وإدارة جميع العملاء
             </p>
           </Link>
+          )}
+
+      
 
           <Link
             to="/subscriptions"
@@ -74,7 +86,8 @@ export const Home = () => {
             </p>
           </Link>
 
-          <Link
+{isAdmin && (
+<Link
             to="/products"
             className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
           >
@@ -86,8 +99,9 @@ export const Home = () => {
               إدارة المنتجات والمبيعات
             </p>
           </Link>
-
-          <Link
+)}
+          {isAdmin && (
+                <Link
             to="/profits"
             className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
           >
@@ -99,35 +113,44 @@ export const Home = () => {
               ارباح المنتجات والزيارات
             </p>
           </Link>
-          <Link
-            to="/Maintenances"
-            className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
-          >
-            <Construction className="h-12 w-12 text-primary-600 dark:text-primary-400 mb-4 group-hover:scale-110 transition-transform" />
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">
-              الصيانه
-            </h2>
-            <p className="text-slate-600 dark:text-slate-300">
-              حساب تكاليف الصيانه
+
+          )}
+
+          {isAdmin && (
+            <Link
+              to="/Maintenances"
+              className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
+            >
+              <Construction className="h-12 w-12 text-primary-600 dark:text-primary-400 mb-4 group-hover:scale-110 transition-transform" />
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">
+                الصيانه
+              </h2>
+              <p className="text-slate-600 dark:text-slate-300">
+                حساب تكاليف الصيانه
             </p>
           </Link>
-          <Link
-            to="/DeletedVisitsList"
-            className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
-          >
-            <Construction className="h-12 w-12 text-primary-600 dark:text-primary-400 mb-4 group-hover:scale-110 transition-transform" />
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">
-              سجل الزيارات
-            </h2>
-            <p className="text-slate-600 dark:text-slate-300">
-              عرض سجل الزيارات المحذوفة
-            </p>
-          </Link>
+          )}
+
+          {isAdmin && (
+            <Link
+              to="/DeletedVisitsList"
+              className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
+            >
+              <FolderArchive className="h-12 w-12 text-primary-600 dark:text-primary-400 mb-4 group-hover:scale-110 transition-transform" />
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">
+                سجل الزيارات
+              </h2>
+              <p className="text-slate-600 dark:text-slate-300">
+                عرض سجل الزيارات المحذوفة
+              </p>
+            </Link>
+          )}
             <Link
             to="/AttendanceForm"
             className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
             >
-            <Construction className="h-12 w-12 text-primary-600 dark:text-primary-400 mb-4 group-hover:scale-110 transition-transform" />
+            
+            <SquareUserRound className="h-12 w-12 text-primary-600 dark:text-primary-400 mb-4 group-hover:scale-110 transition-transform" />
             <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">
               حضور وانصراف
             </h2>
@@ -135,6 +158,37 @@ export const Home = () => {
               عرض سجل الحضور والانصراف
             </p>
             </Link>
+
+
+            {isAdmin && (
+              <Link
+                to="/ProductsPerformance"
+                className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
+              >
+                <Crown className="h-12 w-12 text-primary-600 dark:text-primary-400 mb-4 group-hover:scale-110 transition-transform" />
+                <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">
+                  تقييم المنتجات
+                </h2>
+                <p className="text-slate-600 dark:text-slate-300">
+                  عرض تقييمات المنتجات
+                </p>
+              </Link>
+            )}
+            
+            {isAdmin && (
+              <Link
+                to="/AbsentClient"
+                className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
+              >
+                <AlarmClockMinus className="h-12 w-12 text-primary-600 dark:text-primary-400 mb-4 group-hover:scale-110 transition-transform" />
+                <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">
+                  العملاء المتغيبون
+                </h2>
+                <p className="text-slate-600 dark:text-slate-300">
+                  عرض تقييمات المنتجات
+                </p>
+              </Link>
+            )}
         </div>
       </main>
     </div>

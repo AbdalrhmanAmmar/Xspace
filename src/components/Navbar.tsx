@@ -18,22 +18,24 @@ import { ThemeToggle } from "./ThemeToggle";
 
 export const Navbar = () => {
   const location = useLocation();
-  const { logout } = useAuth();
+  const { logout,user } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const isAdmin = user?.username=="x@spaces.com"
 
   const isActive = (path: string) => {
     return location.pathname === path;
   };
 
-  const navItems = [
-    { path: "/", icon: Rocket, label: "الرئيسية" },
-    { path: "/clients", icon: UserPlus, label: "إدارة العملاء" },
-    { path: "/clients-list", icon: Users, label: "قائمة العملاء" },
-    { path: "/subscriptions", icon: CreditCard, label: "الاشتراكات" },
-    { path: "/reservations", icon: Calendar, label: "الحجوزات" },
-    { path: "/products", icon: Package, label: "المنتجات" },
-    { path: "/profits", icon: Package, label: "الارباح" },
-  ];
+const navItems = [
+  { path: "/", icon: Rocket, label: "الرئيسية" },
+  { path: "/clients", icon: UserPlus, label: "إدارة العملاء" },
+  { path: "/clients-list", icon: Users, label: "قائمة العملاء", isAdmin: true },
+  { path: "/subscriptions", icon: CreditCard, label: "الاشتراكات" },
+  { path: "/reservations", icon: Calendar, label: "الحجوزات" },
+  { path: "/products", icon: Package, label: "المنتجات", isAdmin: true },
+  { path: "/profits", icon: Wrench, label: "الأرباح", isAdmin: true },
+];
 
   return (
     <nav className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-lg border-b border-slate-200/50 dark:border-slate-700/50 sticky top-0 z-50">
@@ -51,7 +53,14 @@ export const Navbar = () => {
 
           {/* Desktop Navigation */}
           <div className="hidden lg:flex items-center space-x-4 rtl:space-x-reverse">
-            {navItems.map((item) => (
+         
+            {navItems.
+            filter((item) => !item.isAdmin || isAdmin)
+            .map((item) => (
+
+              
+              
+              
               <Link
                 key={item.path}
                 to={item.path}
