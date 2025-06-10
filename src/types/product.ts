@@ -1,10 +1,18 @@
-export interface Product {
+export type Category = {
   id: string;
   name: string;
-  buyPrice: string;
+  created_at?: string;
+};
+
+export type Product = {
+  id: string;
+  name: string;
+  buyPrice: string | null;
   price: number;
   quantity: number;
-}
+  category_id?: string | null;
+  category?: Category | null;
+};
 
 export interface LinkedProduct {
   id: string;

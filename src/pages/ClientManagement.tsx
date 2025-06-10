@@ -509,7 +509,7 @@ const calculateTimeCost = (
     case "big":
       return 70 * hours * numberOfPeople;
     case "small":
-      return 45 * hours * numberOfPeople;
+      return 50 * hours * numberOfPeople;
     case "default":
     default:
       return hours === 1

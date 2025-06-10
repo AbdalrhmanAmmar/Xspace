@@ -9,14 +9,44 @@ import {
   Minus,
   X,
   Link as LinkIcon,
+  ChevronDown,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
-import type { Product, LinkedProduct, CartItem } from "../types/product";
+
+type Category = {
+  id: string;
+  name: string;
+  created_at?: string;
+};
+
+type Product = {
+  id: string;
+  name: string;
+  buyPrice: string | null;
+  price: number;
+  quantity: number;
+  category_id?: string | null;
+  category?: Category | null;
+};
+
+type LinkedProduct = {
+  id: string;
+  mainProductId: string;
+  linkedProductId: string;
+  quantity: number;
+  linkedProduct?: Product;
+};
+
+type CartItem = Product & {
+  quantity: number;
+  linkedItems?: CartItem[];
+};
 
 export const Products = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [linkedProducts, setLinkedProducts] = useState<LinkedProduct[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +56,11 @@ export const Products = () => {
     buyPrice: "",
     price: "",
     quantity: "",
+    categoryId: "",
   });
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const [showAddCategoryForm, setShowAddCategoryForm] = useState(false);
   const [selectedLinkedProducts, setSelectedLinkedProducts] = useState<
     { productId: string; quantity: number }[]
   >([]);
@@ -36,20 +70,39 @@ export const Products = () => {
     if (user) {
       fetchProducts();
       fetchLinkedProducts();
+      fetchCategories();
     }
   }, [user]);
+
+  const fetchCategories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("categories")
+        .select("*")
+        .order("name", { ascending: true });
+
+      if (error) throw error;
+
+      setCategories(data || []);
+    } catch (err) {
+      console.error("Error fetching categories:", err);
+      setError("Error loading categories");
+    }
+  };
 
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase.from("products").select("*");
+      const { data, error } = await supabase
+        .from("products")
+        .select("*, category:category_id(*)");
 
       if (error) throw error;
 
       setProducts(data || []);
     } catch (err) {
       console.error("Error fetching products:", err);
-      setError("حدث خطأ أثناء تحميل المنتجات");
+      setError("Error loading products");
     } finally {
       setLoading(false);
     }
@@ -75,7 +128,7 @@ export const Products = () => {
       );
     } catch (err) {
       console.error("Error fetching linked products:", err);
-      setError("حدث خطأ أثناء تحميل المنتجات المرتبطة");
+      setError("Error loading linked products");
     }
   };
 
@@ -84,11 +137,7 @@ export const Products = () => {
       setLoading(true);
       const { data: linkedData, error: linkedError } = await supabase
         .from("linked_products")
-        .select(`
-          id,
-          linked_product_id,
-          quantity
-        `)
+        .select(`id, linked_product_id, quantity`)
         .eq("main_product_id", product.id);
 
       if (linkedError) throw linkedError;
@@ -99,17 +148,18 @@ export const Products = () => {
         buyPrice: product.buyPrice || "",
         price: product.price.toString(),
         quantity: product.quantity.toString(),
+        categoryId: product.category_id || "",
       });
 
       setSelectedLinkedProducts(
-        linkedData.map(item => ({
+        linkedData.map((item) => ({
           productId: item.linked_product_id,
-          quantity: item.quantity
+          quantity: item.quantity,
         }))
       );
     } catch (err) {
       console.error("Error fetching linked products:", err);
-      setError("حدث خطأ أثناء تحميل المنتجات المرتبطة");
+      setError("Error loading linked products");
     } finally {
       setLoading(false);
     }
@@ -118,7 +168,7 @@ export const Products = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
-      setError("يجب تسجيل الدخول أولاً");
+      setError("Please login first");
       return;
     }
 
@@ -131,6 +181,7 @@ export const Products = () => {
         buyPrice: formData.buyPrice || null,
         price: Number(formData.price),
         quantity: Number(formData.quantity),
+        category_id: formData.categoryId || null,
       };
 
       if (editingProduct) {
@@ -149,10 +200,10 @@ export const Products = () => {
         if (deleteError) throw deleteError;
 
         if (selectedLinkedProducts.length > 0) {
-          const linkedProductsData = selectedLinkedProducts.map(item => ({
+          const linkedProductsData = selectedLinkedProducts.map((item) => ({
             main_product_id: editingProduct.id,
             linked_product_id: item.productId,
-            quantity: item.quantity
+            quantity: item.quantity,
           }));
 
           const { error: linkError } = await supabase
@@ -171,10 +222,10 @@ export const Products = () => {
         if (productError) throw productError;
 
         if (selectedLinkedProducts.length > 0) {
-          const linkedProductsData = selectedLinkedProducts.map(item => ({
+          const linkedProductsData = selectedLinkedProducts.map((item) => ({
             main_product_id: newProduct.id,
             linked_product_id: item.productId,
-            quantity: item.quantity
+            quantity: item.quantity,
           }));
 
           const { error: linkError } = await supabase
@@ -187,12 +238,47 @@ export const Products = () => {
 
       await fetchProducts();
       await fetchLinkedProducts();
-      setFormData({ name: "", buyPrice: "", price: "", quantity: "" });
+      setFormData({
+        name: "",
+        buyPrice: "",
+        price: "",
+        quantity: "",
+        categoryId: "",
+      });
       setSelectedLinkedProducts([]);
       setEditingProduct(null);
+      setShowCategoryDropdown(false);
     } catch (err: any) {
       console.error("Error saving product:", err);
-      setError(err.message || "حدث خطأ أثناء حفظ المنتج");
+      setError(err.message || "Error saving product");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addNewCategory = async () => {
+    if (!newCategoryName.trim()) {
+      setError("Category name is required");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("categories")
+        .insert([{ name: newCategoryName.trim() }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setCategories([...categories, data]);
+      setFormData({ ...formData, categoryId: data.id });
+      setNewCategoryName("");
+      setShowAddCategoryForm(false);
+    } catch (err: any) {
+      console.error("Error adding category:", err);
+      setError(err.message || "Error adding category");
     } finally {
       setLoading(false);
     }
@@ -200,16 +286,16 @@ export const Products = () => {
 
   const addToCart = (product: Product) => {
     if (product.quantity <= 0) {
-      setError("هذا المنتج غير متوفر حالياً");
+      setError("This product is currently unavailable");
       return;
     }
 
     setCart((currentCart) => {
       const existingItem = currentCart.find((item) => item.id === product.id);
-      
+
       if (existingItem) {
         if (existingItem.quantity + 1 > product.quantity) {
-          setError("عذراً، الكمية المطلوبة غير متوفرة");
+          setError("Sorry, requested quantity not available");
           return currentCart;
         }
 
@@ -225,10 +311,7 @@ export const Products = () => {
       }
 
       const linkedItems = getLinkedItems(product.id, 1);
-      return [
-        ...currentCart,
-        { ...product, quantity: 1, linkedItems },
-      ];
+      return [...currentCart, { ...product, quantity: 1, linkedItems }];
     });
   };
 
@@ -237,17 +320,17 @@ export const Products = () => {
       (link) => link.mainProductId === productId
     );
 
-    return productLinks.map((link) => {
-      const linkedProduct = products.find(
-        (p) => p.id === link.linkedProductId
-      );
-      if (!linkedProduct) return null;
+    return productLinks
+      .map((link) => {
+        const linkedProduct = products.find((p) => p.id === link.linkedProductId);
+        if (!linkedProduct) return null;
 
-      return {
-        ...linkedProduct,
-        quantity: link.quantity * mainQuantity,
-      };
-    }).filter((item): item is CartItem => item !== null);
+        return {
+          ...linkedProduct,
+          quantity: link.quantity * mainQuantity,
+        };
+      })
+      .filter((item): item is CartItem => item !== null);
   };
 
   const removeFromCart = (productId: string) => {
@@ -297,14 +380,14 @@ export const Products = () => {
   };
 
   const formatCurrency = (amount: number) => {
-    return `${amount.toLocaleString("ar-EG")} جنيه`;
+    return `${amount.toLocaleString()} EGP`;
   };
 
   return (
     <div className="min-h-screen bg-slate-900">
       <div className="max-w-6xl mx-auto p-6">
         <h1 className="text-3xl font-bold text-white mb-8 text-center">
-          إدارة المنتجات
+          ادارة المنتجات
         </h1>
 
         {error && (
@@ -312,13 +395,14 @@ export const Products = () => {
             {error}
           </div>
         )}
+        <div>فئات</div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Product Form */}
           <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
             <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
               <Package className="h-5 w-5" />
-              {editingProduct ? "تعديل المنتج" : "إضافة منتج جديد"}
+              {editingProduct ? "تعديل المنتج" : "ادخل منتج جديد"}
             </h2>
 
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -333,8 +417,7 @@ export const Products = () => {
                     setFormData({ ...formData, name: e.target.value })
                   }
                   className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="أدخل اسم المنتج"
-                  dir="rtl"
+                  placeholder="ادخل اسم المنتج"
                   disabled={loading}
                   required
                 />
@@ -342,7 +425,7 @@ export const Products = () => {
 
               <div>
                 <label className="block text-sm font-medium text-blue-200 mb-2">
-                  سعر الجمله
+                  سعر الجملة
                 </label>
                 <input
                   type="number"
@@ -351,10 +434,8 @@ export const Products = () => {
                     setFormData({ ...formData, buyPrice: e.target.value })
                   }
                   className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="أدخل السعر الجملة"
-                  dir="rtl"
+                  placeholder="ادخل سعر الجملة"
                   disabled={loading}
-                  required
                   min="0"
                   step="0.01"
                 />
@@ -362,7 +443,7 @@ export const Products = () => {
 
               <div>
                 <label className="block text-sm font-medium text-blue-200 mb-2">
-                  السعر (جنيه)
+                  السعر (EGP)
                 </label>
                 <input
                   type="number"
@@ -371,8 +452,7 @@ export const Products = () => {
                     setFormData({ ...formData, price: e.target.value })
                   }
                   className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="أدخل السعر بالجنيه المصري"
-                  dir="rtl"
+                  placeholder="ادخل السعر (EGP)"
                   disabled={loading}
                   required
                   min="0"
@@ -392,12 +472,90 @@ export const Products = () => {
                   }
                   className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="أدخل الكمية"
-                  dir="rtl"
                   min="0"
                   disabled={loading}
                   required
                 />
               </div>
+
+              {/* Category Dropdown */}
+              <div className="relative">
+                <label className="block text-sm font-medium text-blue-200 mb-2">
+                  الفئة
+                </label>
+                <div
+                  className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex justify-between items-center cursor-pointer"
+                  onClick={() => setShowCategoryDropdown(!showCategoryDropdown)}
+                >
+                  <span>
+                    {formData.categoryId
+                      ? categories.find((c) => c.id === formData.categoryId)
+                          ?.name
+                      : "اختر الفئة"}
+                  </span>
+                  <ChevronDown className="h-5 w-5" />
+                </div>
+
+                {showCategoryDropdown && (
+                  <div className="absolute z-10 mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg shadow-lg max-h-60 overflow-auto">
+                    {categories.map((category) => (
+                      <div
+                        key={category.id}
+                        className="px-4 py-2 hover:bg-slate-700 cursor-pointer"
+                        onClick={() => {
+                          setFormData({
+                            ...formData,
+                            categoryId: category.id,
+                          });
+                          setShowCategoryDropdown(false);
+                        }}
+                      >
+                        {category.name}
+                      </div>
+                    ))}
+                    <div
+                      className="px-4 py-2 text-blue-400 hover:bg-slate-700 cursor-pointer border-t border-slate-700"
+                      onClick={() => {
+                        setShowAddCategoryForm(true);
+                        setShowCategoryDropdown(false);
+                      }}
+                    >
+                      + Add New Category
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Add New Category Form */}
+              {showAddCategoryForm && (
+                <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+                  <h3 className="text-white mb-3">Add New Category</h3>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+                      placeholder="ادخل فئة جديدة"
+                    />
+                    <button
+                      type="button"
+                      onClick={addNewCategory}
+                      className="bg-blue-600 text-white px-3 py-2 rounded-lg"
+                      disabled={loading}
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddCategoryForm(false)}
+                      className="bg-slate-700 text-white px-3 py-2 rounded-lg"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Linked Products Section */}
               <div className="space-y-4">
@@ -427,7 +585,7 @@ export const Products = () => {
                       }
                       className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
                     >
-                      <option value="">اختر منتج</option>
+                      <option value="">Select product</option>
                       {products
                         .filter((p) => p.id !== editingProduct?.id)
                         .map((product) => (
@@ -468,10 +626,10 @@ export const Products = () => {
                 >
                   <PlusCircle className="h-5 w-5" />
                   {loading
-                    ? "جاري الحفظ..."
+                    ? "Saving..."
                     : editingProduct
-                    ? "تحديث المنتج"
-                    : "إضافة المنتج"}
+                    ? "Update Product"
+                    : "Add Product"}
                 </button>
                 {editingProduct && (
                   <button
@@ -483,13 +641,14 @@ export const Products = () => {
                         buyPrice: "",
                         price: "",
                         quantity: "",
+                        categoryId: "",
                       });
                       setSelectedLinkedProducts([]);
                     }}
                     className="flex-1 bg-slate-700 text-white py-3 px-4 rounded-lg font-medium hover:bg-slate-600 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-500"
                     disabled={loading}
                   >
-                    إلغاء
+                    Cancel
                   </button>
                 )}
               </div>
@@ -503,9 +662,7 @@ export const Products = () => {
             </h2>
             <div className="space-y-4">
               {loading && products.length === 0 ? (
-                <p className="text-center text-blue-200">
-                  جاري تحميل المنتجات...
-                </p>
+                <p className="text-center text-blue-200">جاري تحميل المنتجات...</p>
               ) : (
                 products.map((product) => (
                   <div
@@ -521,18 +678,28 @@ export const Products = () => {
                           <LinkIcon className="h-4 w-4 text-blue-400" />
                         )}
                       </div>
-                      <p className="text-black text-sm bg-red-500 rounded-md">
+                      {product.category && (
+                        <p className="text-purple-300 text-sm">
+                          Category: {product.category.name}
+                        </p>
+                      )}
+
+                      <div className="flex items-center gap-2">
+
+                      
+                      <p className="text-black text-sm bg-red-500 rounded-md px-1 inline-block">
                         {product.buyPrice == null
-                          ? "لا يوجد سعر جمله"
+                          ? "لا يوجد سعر جملة"
                           : `سعر الجملة: ${formatCurrency(
                               parseFloat(product.buyPrice)
                             )}`}
                       </p>
-                      <p className="text-black rounded-md text-sm bg-green-500">
-                        سعر البيع: {formatCurrency(product.price)}
+                      <p className="text-black rounded-md text-sm bg-green-500 px-1 inline-block">
+                        السعر: {formatCurrency(product.price)}
                       </p>
+                      </div>
                       <p className="text-blue-200 text-sm">
-                        الكمية المتوفرة: {product.quantity}
+                       الكمية المتاحة: {product.quantity}
                       </p>
 
                       {/* Show linked products */}
@@ -572,9 +739,7 @@ export const Products = () => {
                 ))
               )}
               {!loading && products.length === 0 && (
-                <p className="text-center text-blue-200">
-                  لا توجد منتجات حالياً
-                </p>
+                <p className="text-center text-blue-200">No products found</p>
               )}
             </div>
           </div>
@@ -583,7 +748,7 @@ export const Products = () => {
           {cart.length > 0 && (
             <div className="lg:col-span-2 bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
               <h2 className="text-xl font-semibold text-white mb-6">
-                سلة المشتريات
+                Shopping Cart
               </h2>
               <div className="space-y-4">
                 {cart.map((item) => (
@@ -591,6 +756,11 @@ export const Products = () => {
                     <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 flex items-center justify-between">
                       <div className="space-y-1">
                         <p className="text-white font-medium">{item.name}</p>
+                        {item.category && (
+                          <p className="text-purple-300 text-sm">
+                            Category: {item.category.name}
+                          </p>
+                        )}
                         <p className="text-blue-200 text-sm">
                           {item.quantity} × {formatCurrency(item.price)} ={" "}
                           {formatCurrency(item.quantity * item.price)}
@@ -617,7 +787,7 @@ export const Products = () => {
                     {item.linkedItems?.map((linkedItem) => (
                       <div
                         key={linkedItem.id}
-                        className="bg-slate-800/30 p-3 rounded-lg border border-slate-700/50 flex items-center justify-between mr-6"
+                        className="bg-slate-800/30 p-3 rounded-lg border border-slate-700/50 flex items-center justify-between ml-6"
                       >
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
@@ -625,8 +795,11 @@ export const Products = () => {
                             <p className="text-slate-300">{linkedItem.name}</p>
                           </div>
                           <p className="text-slate-400 text-sm">
-                            {linkedItem.quantity} × {formatCurrency(linkedItem.price)} ={" "}
-                            {formatCurrency(linkedItem.quantity * linkedItem.price)}
+                            {linkedItem.quantity} ×{" "}
+                            {formatCurrency(linkedItem.price)} ={" "}
+                            {formatCurrency(
+                              linkedItem.quantity * linkedItem.price
+                            )}
                           </p>
                         </div>
                       </div>
@@ -636,21 +809,20 @@ export const Products = () => {
 
                 <div className="pt-4 border-t border-slate-700">
                   <div className="flex justify-between items-center text-xl font-bold text-white">
-                    <span>الإجمالي:</span>
+                    <span>Total:</span>
                     <span>
                       {formatCurrency(
-                        cart.reduce(
-                          (total, item) => {
-                            const itemTotal = item.price * item.quantity;
-                            const linkedItemsTotal = (item.linkedItems || []).reduce(
-                              (sum, linkedItem) =>
-                                sum + linkedItem.price * linkedItem.quantity,
-                              0
-                            );
-                            return total + itemTotal + linkedItemsTotal;
-                          },
-                          0
-                        )
+                        cart.reduce((total, item) => {
+                          const itemTotal = item.price * item.quantity;
+                          const linkedItemsTotal = (
+                            item.linkedItems || []
+                          ).reduce(
+                            (sum, linkedItem) =>
+                              sum + linkedItem.price * linkedItem.quantity,
+                            0
+                          );
+                          return total + itemTotal + linkedItemsTotal;
+                        }, 0)
                       )}
                     </span>
                   </div>
