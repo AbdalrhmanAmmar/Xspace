@@ -18,7 +18,7 @@ import { useAuth } from "../contexts/AuthContext";
 export const Home = () => {
   const { user } = useAuth();
   
-  const isAdmin = user?.username == "x@spaces.com";
+  const isAdmin = user?.username == "admin@xspace.com";
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">

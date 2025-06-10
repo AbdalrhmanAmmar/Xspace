@@ -21,7 +21,7 @@ export const Navbar = () => {
   const { logout,user } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const isAdmin = user?.username=="x@spaces.com"
+  const isAdmin = user?.username=="admin@xspace.com"
 
   const isActive = (path: string) => {
     return location.pathname === path;

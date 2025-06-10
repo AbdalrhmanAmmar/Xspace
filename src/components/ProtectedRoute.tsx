@@ -19,7 +19,7 @@ export const ProtectedRoute = ({ children, adminOnly = false }: ProtectedRoutePr
 
   // إذا كانت الصفحة للأدمن فقط، والمستخدم ليس أدمن
   // (يمكنك الاعتماد على الدور بدلاً من البريد إن وُجد)
-  if (adminOnly && user.username !== "x@spaces.com") {
+  if (adminOnly && user.username !== "admin@xspace.com") {
     return <Navigate to="/" replace />;
   }
 
