@@ -8,6 +8,7 @@ interface Revenue {
   reservationRevenue: number;
   productRevenue: number;
   totalRevenue: number;
+  productProfit: number; // ✅ صافي الربح من المنتجات
 }
 
 interface RevenueByPeriod {
@@ -18,9 +19,9 @@ interface RevenueByPeriod {
 
 function Profits() {
   const [revenue, setRevenue] = useState<RevenueByPeriod>({
-    daily: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0 },
-    weekly: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0 },
-    monthly: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0 },
+    daily: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0, productProfit: 0 },
+    weekly: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0, productProfit: 0 },
+    monthly: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0, productProfit: 0 },
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +53,7 @@ function Profits() {
 
       const { data: visitProductsData } = await supabase.from("visit_products").select("price, quantity, created_at");
       const { data: deletedVisitProductsData } = await supabase.from("deleted_visit_products").select("price, quantity, created_at");
-      const { data: productSalesData } = await supabase.from("product_sales").select("price, quantity, created_at");
+      const { data: productSalesData } = await supabase.from("product_sales").select("price, buy_price, quantity, created_at");
 
       const allProductsData = [
         ...(visitProductsData || []),
@@ -60,26 +61,31 @@ function Profits() {
         ...(productSalesData || [])
       ];
 
-      const calculatePeriodRevenue = (startDate: Date): Revenue => {
-        const sumByDate = (items: any[], valueKey: string, dateKey: string) =>
-          items?.filter((item) => new Date(item[dateKey]) >= startDate)
-                .reduce((sum, item) => sum + (item[valueKey] || 0), 0) || 0;
+const calculatePeriodRevenue = (startDate: Date): Revenue => {
+  const sumByDate = (items: any[], valueKey: string, dateKey: string) =>
+    items?.filter((item) => new Date(item[dateKey]) >= startDate)
+          .reduce((sum, item) => sum + (item[valueKey] || 0), 0) || 0;
 
-        const productSum = allProductsData?.filter(p => new Date(p.created_at) >= startDate)
-          .reduce((sum, p) => sum + ((p.price || 0) * (p.quantity || 1)), 0) || 0;
+  const productRevenue = allProductsData?.filter(p => new Date(p.created_at) >= startDate)
+    .reduce((sum, p) => sum + ((p.price || 0) * (p.quantity || 1)), 0) || 0;
 
-        const visits = sumByDate(allVisitsData, "amount", "created_at");
-        const subscriptions = sumByDate(subscriptionsData || [], "price", "created_at");
-        const reservations = sumByDate(reservationsData || [], "total_price", "created_at");
+  const productProfit = productSalesData?.filter(p => new Date(p.created_at) >= startDate)
+    .reduce((sum, p) => sum + (((p.price || 0) - (p.buy_price || 0)) * (p.quantity || 1)), 0) || 0;
 
-        return {
-          hourlyRevenue: visits,
-          subscriptionRevenue: subscriptions,
-          reservationRevenue: reservations,
-          productRevenue: productSum,
-          totalRevenue: visits + subscriptions + reservations + productSum,
-        };
-      };
+  const visits = sumByDate(allVisitsData, "amount", "created_at");
+  const subscriptions = sumByDate(subscriptionsData || [], "price", "created_at");
+  const reservations = sumByDate(reservationsData || [], "total_price", "created_at");
+
+  return {
+    hourlyRevenue: visits,
+    subscriptionRevenue: subscriptions,
+    reservationRevenue: reservations,
+    productRevenue: productRevenue,
+    totalRevenue: visits + subscriptions + reservations + productProfit, // ✅ المعدّل
+    productProfit: productProfit,
+  };
+};
+
 
       setRevenue({
         daily: calculatePeriodRevenue(startOfDay),
@@ -118,6 +124,7 @@ function Profits() {
         <RevenueCard title="إيرادات الاشتراكات" icon={CreditCard} amount={data.subscriptionRevenue} color="bg-green-600" />
         <RevenueCard title="إيرادات الحجوزات" icon={Calendar} amount={data.reservationRevenue} color="bg-purple-600" />
         <RevenueCard title="إيرادات المنتجات" icon={Package} amount={data.productRevenue} color="bg-orange-600" />
+        <RevenueCard title="صافي ربح المنتجات" icon={DollarSign} amount={data.productProfit} color="bg-lime-600" />
         <div className="md:col-span-2 lg:col-span-3">
           <RevenueCard title="إجمالي الإيرادات" icon={DollarSign} amount={data.totalRevenue} color="bg-emerald-600" />
         </div>
