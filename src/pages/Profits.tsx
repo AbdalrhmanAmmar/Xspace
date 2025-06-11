@@ -39,12 +39,13 @@ function Profits() {
       const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-      const { data: visitsData } = await supabase.from("visits").select("total_amount, created_at");
-      const { data: deletedVisitsData } = await supabase.from("deleted_visit").select("total_amount, start_time");
-      const allVisitsData = [...(visitsData || []), ...(deletedVisitsData?.map(v => ({
-        total_amount: v.total_amount,
-        created_at: v.start_time
-      })) || [])];
+      const { data: visitsData } = await supabase.from("visits").select("time_amount, created_at");
+      const { data: deletedVisitsData } = await supabase.from("deleted_visit").select("time_amount, start_time");
+
+      const allVisitsData = [
+        ...(visitsData || []).map(v => ({ amount: v.time_amount, created_at: v.created_at })),
+        ...(deletedVisitsData || []).map(v => ({ amount: v.time_amount, created_at: v.start_time }))
+      ];
 
       const { data: subscriptionsData } = await supabase.from("subscriptions").select("price, created_at");
       const { data: reservationsData } = await supabase.from("reservations").select("total_price, created_at");
@@ -59,7 +60,7 @@ function Profits() {
         ...(productSalesData || [])
       ];
 
-      const calculatePeriodRevenue = (startDate: Date) => {
+      const calculatePeriodRevenue = (startDate: Date): Revenue => {
         const sumByDate = (items: any[], valueKey: string, dateKey: string) =>
           items?.filter((item) => new Date(item[dateKey]) >= startDate)
                 .reduce((sum, item) => sum + (item[valueKey] || 0), 0) || 0;
@@ -67,7 +68,7 @@ function Profits() {
         const productSum = allProductsData?.filter(p => new Date(p.created_at) >= startDate)
           .reduce((sum, p) => sum + ((p.price || 0) * (p.quantity || 1)), 0) || 0;
 
-        const visits = sumByDate(allVisitsData, "total_amount", "created_at");
+        const visits = sumByDate(allVisitsData, "amount", "created_at");
         const subscriptions = sumByDate(subscriptionsData || [], "price", "created_at");
         const reservations = sumByDate(reservationsData || [], "total_price", "created_at");
 
