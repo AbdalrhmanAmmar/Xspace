@@ -93,20 +93,44 @@ function Profits() {
           .filter(r => new Date(r.created_at) >= startDate)
           .reduce((sum, r) => sum + (r.total_price || 0), 0);
 
-        // إيرادات المنتجات - تشمل العادية والمحذوفة
+        // إيرادات المنتجات - تشمل العادية والمحذوفة ومبيعات المنتجات
         const productRevenue = allProductsData
           .filter(p => new Date(p.created_at) >= startDate)
           .reduce((sum, p) => sum + ((parseFloat(p.price) || 0) * (p.quantity || 1)), 0);
 
-        // صافي ربح المنتجات (سعر البيع - سعر الشراء) - فقط من product_sales
-        const productProfit = (productSalesData || [])
+        // صافي ربح المنتجات - يشمل المنتجات المحذوفة أيضاً
+        let productProfit = 0;
+
+        // ربح من مبيعات المنتجات العادية (product_sales)
+productProfit += (visitProductsData || [])
+  .filter(p => new Date(p.created_at) >= startDate)
+  .reduce((sum, p) => {
+    const sellPrice = parseFloat(p.price) || 0;
+    const buyPrice = p.buy_price !== undefined ? parseFloat(p.buy_price) : sellPrice * 0.7; // ✅ استخدم buy_price إذا موجود
+    const quantity = p.quantity || 1;
+    return sum + ((sellPrice - buyPrice) * quantity);
+  }, 0);
+
+        // ربح من منتجات الزيارات العادية
+        productProfit += (visitProductsData || [])
           .filter(p => new Date(p.created_at) >= startDate)
           .reduce((sum, p) => {
+            // نفترض هامش ربح 30% إذا لم يكن لدينا سعر الشراء
             const sellPrice = parseFloat(p.price) || 0;
-            const buyPrice = parseFloat(p.buy_price) || 0;
+            const estimatedBuyPrice = sellPrice * 0.7; // 30% هامش ربح
             const quantity = p.quantity || 1;
-            return sum + ((sellPrice - buyPrice) * quantity);
+            return sum + ((sellPrice - estimatedBuyPrice) * quantity);
           }, 0);
+
+        // ربح من منتجات الزيارات المحذوفة
+productProfit += (deletedVisitProductsData || [])
+  .filter(p => new Date(p.created_at) >= startDate)
+  .reduce((sum, p) => {
+    const sellPrice = parseFloat(p.price) || 0;
+    const buyPrice = p.buy_price !== undefined ? parseFloat(p.buy_price) : sellPrice * 0.7;
+    const quantity = p.quantity || 1;
+    return sum + ((sellPrice - buyPrice) * quantity);
+  }, 0);
 
         // إجمالي الإيرادات
         const totalRevenue = hourlyRevenue + subscriptionRevenue + reservationRevenue + productRevenue;
@@ -158,7 +182,7 @@ function Profits() {
         <RevenueCard title="إيرادات الاشتراكات" icon={CreditCard} amount={data.subscriptionRevenue} color="bg-green-600" />
         <RevenueCard title="إيرادات الحجوزات" icon={Calendar} amount={data.reservationRevenue} color="bg-purple-600" />
         <RevenueCard title="إيرادات المنتجات (شامل المحذوف)" icon={Package} amount={data.productRevenue} color="bg-orange-600" />
-        <RevenueCard title="صافي ربح المنتجات" icon={DollarSign} amount={data.productProfit} color="bg-lime-600" />
+        <RevenueCard title="صافي ربح المنتجات (شامل المحذوف)" icon={DollarSign} amount={data.productProfit} color="bg-lime-600" />
         <div className="md:col-span-2 lg:col-span-3">
           <RevenueCard title="إجمالي الإيرادات" icon={DollarSign} amount={data.totalRevenue} color="bg-emerald-600" />
         </div>
