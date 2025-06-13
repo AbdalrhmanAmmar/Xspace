@@ -43,10 +43,16 @@ function Profits() {
       const { data: visitsData } = await supabase.from("visits").select("time_amount, created_at");
       const { data: deletedVisitsData } = await supabase.from("deleted_visit").select("time_amount, start_time");
 
-      const allVisitsData = [
-        ...(visitsData || []).map(v => ({ amount: v.time_amount, created_at: v.created_at })),
-        ...(deletedVisitsData || []).map(v => ({ amount: v.time_amount, created_at: v.start_time }))
-      ];
+const allVisitsData = [
+  ...(visitsData || []).map(v => ({ 
+    amount: v.time_amount, 
+    created_at: v.created_at 
+  })),
+  ...(deletedVisitsData || []).map(v => ({ 
+    amount: parseFloat(v.total_amount) || 0,  // 🔴 استخدم total_amount بدلاً من time_amount
+    created_at: v.start_time 
+  }))
+];
 
       const { data: subscriptionsData } = await supabase.from("subscriptions").select("price, created_at");
       const { data: reservationsData } = await supabase.from("reservations").select("total_price, created_at");
@@ -62,27 +68,41 @@ function Profits() {
       ];
 
 const calculatePeriodRevenue = (startDate: Date): Revenue => {
-  const sumByDate = (items: any[], valueKey: string, dateKey: string) =>
-    items?.filter((item) => new Date(item[dateKey]) >= startDate)
-          .reduce((sum, item) => sum + (item[valueKey] || 0), 0) || 0;
+  // إيرادات الزيارات (الساعات)
+  const hourlyRevenue = allVisitsData
+    .filter(v => new Date(v.created_at) >= startDate)
+    .reduce((sum, v) => sum + (v.amount || 0), 0);
 
-  const productRevenue = allProductsData?.filter(p => new Date(p.created_at) >= startDate)
-    .reduce((sum, p) => sum + ((p.price || 0) * (p.quantity || 1)), 0) || 0;
+  // إيرادات الاشتراكات
+  const subscriptionRevenue = (subscriptionsData || [])
+    .filter(s => new Date(s.created_at) >= startDate)
+    .reduce((sum, s) => sum + (s.price || 0), 0);
 
-  const productProfit = productSalesData?.filter(p => new Date(p.created_at) >= startDate)
-    .reduce((sum, p) => sum + (((p.price || 0) - (p.buy_price || 0)) * (p.quantity || 1)), 0) || 0;
+  // إيرادات الحجوزات
+  const reservationRevenue = (reservationsData || [])
+    .filter(r => new Date(r.created_at) >= startDate)
+    .reduce((sum, r) => sum + (r.total_price || 0), 0);
 
-  const visits = sumByDate(allVisitsData, "amount", "created_at");
-  const subscriptions = sumByDate(subscriptionsData || [], "price", "created_at");
-  const reservations = sumByDate(reservationsData || [], "total_price", "created_at");
+  // إيرادات المنتجات
+  const productRevenue = allProductsData
+    .filter(p => new Date(p.created_at) >= startDate)
+    .reduce((sum, p) => sum + ((p.price || 0) * (p.quantity || 1)), 0);
+
+  // صافي ربح المنتجات (سعر البيع - سعر الشراء)
+  const productProfit = (productSalesData || [])
+    .filter(p => new Date(p.created_at) >= startDate)
+    .reduce((sum, p) => sum + ((p.price - p.buy_price) * (p.quantity || 1)), 0);
+
+  // إجمالي الإيرادات
+  const totalRevenue = hourlyRevenue + subscriptionRevenue + reservationRevenue + productRevenue;
 
   return {
-    hourlyRevenue: visits,
-    subscriptionRevenue: subscriptions,
-    reservationRevenue: reservations,
-    productRevenue: productRevenue,
-    totalRevenue: visits + subscriptions + reservations + productProfit, // ✅ المعدّل
-    productProfit: productProfit,
+    hourlyRevenue,
+    subscriptionRevenue,
+    reservationRevenue,
+    productRevenue,
+    totalRevenue,
+    productProfit,
   };
 };
 

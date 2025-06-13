@@ -804,12 +804,48 @@ const deleteAllVisits = async () => {
   try {
     setIsDeleting(true);
 
-    const { error } = await supabase.rpc("safe_delete_all_visits", { confirm: true });
+    // 1. أولاً احصل على جميع الزيارات الحالية
+    const { data: allVisits, error: visitsError } = await supabase
+      .from("visits")
+      .select("*");
+    
+    if (visitsError) throw visitsError;
 
-    if (error) {
-      console.error("❌ خطأ من Supabase:", error);
-      throw error;
+    // 2. احصل على جميع منتجات الزيارات
+    const { data: allVisitProducts, error: productsError } = await supabase
+      .from("visit_products")
+      .select("*");
+    
+    if (productsError) throw productsError;
+
+    // 3. انقل الزيارات إلى جدول المحذوفات
+    if (allVisits && allVisits.length > 0) {
+      const { error: moveError } = await supabase
+        .from("deleted_visit")
+        .insert(allVisits.map(v => ({
+          ...v,
+          deleted_at: new Date().toISOString()
+        })));
+      
+      if (moveError) throw moveError;
     }
+
+    // 4. انقل منتجات الزيارات إلى جدول المحذوفات
+    if (allVisitProducts && allVisitProducts.length > 0) {
+      const { error: moveProductsError } = await supabase
+        .from("deleted_visit_products")
+        .insert(allVisitProducts);
+      
+      if (moveProductsError) throw moveProductsError;
+    }
+
+    // 5. الآن احذف الزيارات الأصلية
+    const { error: deleteError } = await supabase
+      .from("visits")
+      .delete()
+      .neq("id", 0); // حذف جميع الزيارات
+    
+    if (deleteError) throw deleteError;
 
     setVisits([]);
     setShowDeleteAllModal(false);
