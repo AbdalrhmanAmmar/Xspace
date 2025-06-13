@@ -507,7 +507,7 @@ const calculateTimeCost = (
   
   switch (type) {
     case "big":
-      return 70 * hours * numberOfPeople;
+      return 100 * hours * numberOfPeople;
     case "small":
       return 50 * hours * numberOfPeople;
     case "default":
