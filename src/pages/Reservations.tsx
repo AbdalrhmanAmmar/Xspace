@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Trash2, X, Settings, Check, Calendar } from "lucide-react";
+import { Trash2, X, Settings, Check, Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import { DbReservation, HALLS } from "../types/client";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
@@ -7,6 +7,13 @@ import { useAuth } from "../contexts/AuthContext";
 interface HallPrices {
   largeHall: number;
   smallHall: number;
+}
+
+interface CalendarDay {
+  date: Date;
+  isCurrentMonth: boolean;
+  isSelected: boolean;
+  hasReservations: boolean;
 }
 
 export const Reservations = () => {
@@ -19,7 +26,7 @@ export const Reservations = () => {
   const [selectedType, setSelectedType] = useState<"large" | "small">("large");
   const [formData, setFormData] = useState({
     clientName: "",
-   ate: "", 
+    date: "",
     time: "",
     durationRange: "60",
     hallName: HALLS.LARGE,
@@ -33,7 +40,8 @@ export const Reservations = () => {
     largeHall: 90,
     smallHall: 45,
   });
-  const [weekFilter, setWeekFilter] = useState<string>("all");
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -44,26 +52,86 @@ export const Reservations = () => {
 
   useEffect(() => {
     filterReservations();
-  }, [reservations, weekFilter]);
+  }, [reservations, selectedDate]);
+
+  const getDaysInMonth = (date: Date): CalendarDay[] => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const firstDayOfMonth = new Date(year, month, 1).getDay();
+    const days: CalendarDay[] = [];
+    
+    // Days from previous month
+    const prevMonthDays = new Date(year, month, 0).getDate();
+    for (let i = firstDayOfMonth - 1; i >= 0; i--) {
+      days.push({
+        date: new Date(year, month - 1, prevMonthDays - i),
+        isCurrentMonth: false,
+        isSelected: false,
+        hasReservations: false
+      });
+    }
+    
+    // Current month days
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dayDate = new Date(year, month, day);
+      const hasReservations = reservations.some(res => {
+        const resDate = new Date(`${res.date}T${res.time}`);
+        return (
+          resDate.getDate() === dayDate.getDate() &&
+          resDate.getMonth() === dayDate.getMonth() &&
+          resDate.getFullYear() === dayDate.getFullYear()
+        );
+      });
+      
+      days.push({
+        date: dayDate,
+        isCurrentMonth: true,
+        isSelected: selectedDate ? 
+          dayDate.toDateString() === selectedDate.toDateString() : false,
+        hasReservations
+      });
+    }
+    
+    // Days from next month
+    const daysToAdd = 42 - days.length;
+    for (let i = 1; i <= daysToAdd; i++) {
+      days.push({
+        date: new Date(year, month + 1, i),
+        isCurrentMonth: false,
+        isSelected: false,
+        hasReservations: false
+      });
+    }
+    
+    return days;
+  };
+
+  const prevMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+  };
+
+  const nextMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+  };
+
+  const getMonthName = () => {
+    return new Intl.DateTimeFormat('ar-EG', { 
+      month: 'long', 
+      year: 'numeric' 
+    }).format(currentMonth);
+  };
 
   const filterReservations = () => {
-    if (weekFilter === "all") {
+    if (!selectedDate) {
       setFilteredReservations(reservations);
       return;
     }
 
     const filtered = reservations.filter(reservation => {
       const date = new Date(`${reservation.date}T${reservation.time}`);
-      const dayOfWeek = date.getDay(); // 0 for Sunday, 1 for Monday, etc.
-      
-      // Convert to Arabic week days (0=الأحد, 1=الإثنين, etc.)
-      return (weekFilter === "0" && dayOfWeek === 0) || 
-             (weekFilter === "1" && dayOfWeek === 1) ||
-             (weekFilter === "2" && dayOfWeek === 2) ||
-             (weekFilter === "3" && dayOfWeek === 3) ||
-             (weekFilter === "4" && dayOfWeek === 4) ||
-             (weekFilter === "5" && dayOfWeek === 5) ||
-             (weekFilter === "6" && dayOfWeek === 6);
+      return date.toDateString() === selectedDate.toDateString();
     });
 
     setFilteredReservations(filtered);
@@ -155,7 +223,7 @@ export const Reservations = () => {
       return (data && data.length > 0);
     } catch (err) {
       console.error("Error checking time conflict:", err);
-      return true; // To be safe, assume conflict if there's an error
+      return true;
     }
   };
 
@@ -170,14 +238,12 @@ export const Reservations = () => {
       setLoading(true);
       setError(null);
 
-      // Calculate reservation details
       const startDateTime = new Date(`${formData.date}T${formData.time}`);
       const durationInMinutes = parseInt(formData.durationRange);
       const endDateTime = new Date(
         startDateTime.getTime() + durationInMinutes * 60000
       );
 
-      // Check for time conflict
       const hasConflict = await checkTimeConflict(
         startDateTime.toISOString(),
         endDateTime.toISOString(),
@@ -189,7 +255,6 @@ export const Reservations = () => {
         return;
       }
 
-      // Create or get client
       const { data: clientData, error: clientError } = await supabase
         .from("clients")
         .insert([
@@ -216,11 +281,9 @@ export const Reservations = () => {
         clientId = existingClient.id;
       }
 
-      // Determine price
       const hallPrice = formData.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall;
       const totalPrice = (hallPrice / 60) * durationInMinutes;
 
-      // Create reservation
       const { error: reservationError } = await supabase
         .from("reservations")
         .insert([
@@ -325,22 +388,9 @@ export const Reservations = () => {
 
   const getDurationColor = (minutes: number) => {
     const percentage = (minutes / 480) * 100;
-    if (percentage <= 33) return "#22c55e"; // green-500
-    if (percentage <= 66) return "#eab308"; // yellow-500
-    return "#ef4444"; // red-500
-  };
-
-  const getDayName = (dayIndex: string) => {
-    const days = {
-      "0": "الأحد",
-      "1": "الإثنين",
-      "2": "الثلاثاء",
-      "3": "الأربعاء",
-      "4": "الخميس",
-      "5": "الجمعة",
-      "6": "السبت"
-    };
-    return days[dayIndex as keyof typeof days] || "الكل";
+    if (percentage <= 33) return "#22c55e";
+    if (percentage <= 66) return "#eab308";
+    return "#ef4444";
   };
 
   if (!user) {
@@ -353,7 +403,7 @@ export const Reservations = () => {
 
   return (
     <div className="min-h-screen bg-slate-900">
-      <div className="max-w-4xl mx-auto p-6">
+      <div className="max-w-6xl mx-auto p-6">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold text-white">الحجوزات</h1>
           <button
@@ -489,7 +539,7 @@ export const Reservations = () => {
                   onChange={(e) =>
                     setFormData({ ...formData, time: e.target.value })
                   }
-                  className="w-full px-4 py-3 rounded-lg bg-slate-800 border border slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                   disabled={loading}
                 />
@@ -623,94 +673,128 @@ export const Reservations = () => {
           </form>
         </div>
 
-        {/* Weekday Filter */}
+        {/* Calendar Section */}
         <div className="mb-6 bg-slate-800/50 p-4 rounded-lg">
-          <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
-            تصفية حسب اليوم
-          </h3>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setWeekFilter("all")}
-              className={`px-3 py-1 rounded-lg text-sm ${
-                weekFilter === "all"
-                  ? "bg-blue-600 text-white"
-                  : "bg-slate-700 text-blue-200 hover:bg-slate-600"
-              }`}
-            >
-              الكل
-            </button>
-            {["0", "1", "2", "3", "4", "5", "6"].map((day) => (
-              <button
-                key={day}
-                onClick={() => setWeekFilter(day)}
-                className={`px-3 py-1 rounded-lg text-sm ${
-                  weekFilter === day
-                    ? "bg-blue-600 text-white"
-                    : "bg-slate-700 text-blue-200 hover:bg-slate-600"
-                }`}
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium text-white flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              التقويم الشهري
+            </h3>
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={prevMonth}
+                className="text-blue-200 hover:text-white"
               >
-                {getDayName(day)}
+                <ChevronRight className="h-5 w-5" />
+              </button>
+              <span className="text-white font-medium">
+                {getMonthName()}
+              </span>
+              <button 
+                onClick={nextMonth}
+                className="text-blue-200 hover:text-white"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 mb-2">
+            {['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'].map(day => (
+              <div key={day} className="text-center text-blue-200 text-sm py-2">
+                {day}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-1">
+            {getDaysInMonth(currentMonth).map((day, index) => (
+              <button
+                key={index}
+                onClick={() => {
+                  if (day.isCurrentMonth) {
+                    setSelectedDate(day.date);
+                  }
+                }}
+                className={`h-14 rounded-lg flex flex-col items-center justify-center text-sm
+                  ${day.isCurrentMonth ? 'text-white' : 'text-slate-500'}
+                  ${day.isSelected ? 'bg-blue-600 text-white' : ''}
+                  ${day.hasReservations && !day.isSelected ? 'bg-slate-700' : ''}
+                  ${!day.isCurrentMonth ? 'opacity-50' : ''}
+                  hover:bg-slate-600 transition-colors`}
+              >
+                <span>{day.date.getDate()}</span>
+                {day.hasReservations && (
+                  <span className="w-1 h-1 rounded-full bg-blue-400 mt-1"></span>
+                )}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="space-y-4">
-          {filteredReservations.map((reservation) => (
-            <div
-              key={reservation.id}
-              className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20"
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-xl font-semibold text-white">
-                    {reservation.clientName}
-                  </h3>
-                  <div className="mt-2 space-y-1">
-                    <p className="text-blue-200">
-                      {reservation.date} - {reservation.time}
-                    </p>
-                    <p className="text-blue-200">
-                      {formatDurationDisplay(
-                        reservation.duration.hours * 60 +
-                          reservation.duration.minutes
-                      )}
-                    </p>
-                    <p className="text-blue-200">{reservation.hallName}</p>
+        {/* Reservations for Selected Date */}
+        {selectedDate && (
+          <div className="mb-6">
+            <h3 className="text-lg font-medium text-white mb-4">
+              الحجوزات في {selectedDate.toLocaleDateString('ar-EG')}
+            </h3>
+            <div className="space-y-4">
+              {filteredReservations.length > 0 ? (
+                filteredReservations.map((reservation) => (
+                  <div
+                    key={reservation.id}
+                    className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="text-xl font-semibold text-white">
+                          {reservation.clientName}
+                        </h3>
+                        <div className="mt-2 space-y-1">
+                          <p className="text-blue-200">
+                            الوقت: {reservation.time}
+                          </p>
+                          <p className="text-blue-200">
+                            المدة: {formatDurationDisplay(
+                              reservation.duration.hours * 60 +
+                                reservation.duration.minutes
+                            )}
+                          </p>
+                          <p className="text-blue-200">القاعة: {reservation.hallName}</p>
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-slate-700">
+                          <p className="text-white">
+                            الإجمالي: {formatCurrency(reservation.totalPrice)}
+                          </p>
+                          <p className="text-emerald-400">
+                            العربون: {formatCurrency(reservation.deposit)}
+                          </p>
+                          <p className="text-blue-400">
+                            المتبقي:{" "}
+                            {formatCurrency(
+                              reservation.totalPrice - reservation.deposit
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleDelete(reservation.id)}
+                        className="text-red-400 hover:text-red-300 transition-colors"
+                        disabled={loading}
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="mt-4 pt-4 border-t border-slate-700">
-                    <p className="text-white">
-                      الإجمالي: {formatCurrency(reservation.totalPrice)}
-                    </p>
-                    <p className="text-emerald-400">
-                      العربون: {formatCurrency(reservation.deposit)}
-                    </p>
-                    <p className="text-blue-400">
-                      المتبقي:{" "}
-                      {formatCurrency(
-                        reservation.totalPrice - reservation.deposit
-                      )}
-                    </p>
-                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 bg-slate-800/50 rounded-lg">
+                  <p className="text-slate-400">لا توجد حجوزات في هذا اليوم</p>
                 </div>
-                <button
-                  onClick={() => handleDelete(reservation.id)}
-                  className="text-red-400 hover:text-red-300 transition-colors"
-                  disabled={loading}
-                >
-                  <Trash2 className="h-5 w-5" />
-                </button>
-              </div>
+              )}
             </div>
-          ))}
-
-          {!loading && filteredReservations.length === 0 && (
-            <div className="text-center py-12">
-              <p className="text-xl text-slate-400">لا توجد حجوزات حالياً</p>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -55,18 +55,36 @@ const fetchDataForDate = async (date: Date) => {
   setError(null);
 
   const formatted = format(date, 'yyyy-MM-dd');
+  console.log('Fetching data for date:', formatted); // Log التاريخ المستخدم في الاستعلام
 
-  const { data, error } = await supabase
+  const { data: queryData, error } = await supabase
     .from("profit_archive")
     .select("*")
-    .eq("date", formatted)
-    .single();
+    .eq("date", formatted);
+
+  console.log('Supabase response:', { queryData, error }); // Log استجابة Supabase
 
   if (error) {
     console.error('Supabase error:', error);
+    setError("حدث خطأ في جلب البيانات.");
+    setData(null);
+  } else if (!queryData || queryData.length === 0) {
+    console.log('No data found for this date'); // Log عدم وجود بيانات
     setError("لم يتم العثور على بيانات لهذا التاريخ.");
     setData(null);
+    setEditedData({
+      hourly_revenue: 0,
+      subscription_revenue: 0,
+      reservation_revenue: 0,
+      product_revenue: 0,
+      maintenance: 0,
+      daily_expenses: 0,
+      salaries: 0,
+      notes: null
+    });
   } else {
+    const data = queryData[0];
+    console.log('Data found:', data); // Log البيانات التي تم العثور عليها
     setData({
       hourly_revenue: data.hourly_revenue || 0,
       subscription_revenue: data.subscription_revenue || 0,
@@ -112,6 +130,20 @@ const fetchDataForDate = async (date: Date) => {
         salaries: 0,
         notes: null
       });
+    } else if (!data) {
+      // إنشاء سجل جديد عند التحرير إذا لم يكن هناك بيانات
+      const newRecord = {
+        hourly_revenue: 0,
+        subscription_revenue: 0,
+        reservation_revenue: 0,
+        product_revenue: 0,
+        maintenance: 0,
+        daily_expenses: 0,
+        salaries: 0,
+        notes: null,
+        date: format(selectedDate, 'yyyy-MM-dd')
+      };
+      setEditedData(newRecord);
     }
     setEditMode(!editMode);
   };
@@ -303,42 +335,22 @@ const fetchDataForDate = async (date: Date) => {
             <p className="text-slate-400">جاري تحميل البيانات...</p>
           </div>
         ) : error ? (
-          <div className="bg-red-900/30 border border-red-700 rounded-xl p-6 text-center">
+    <div className="bg-red-900/30 border border-red-700 rounded-xl p-6 text-center">
             <p className="text-red-400 text-lg">{error}</p>
-            {editMode && (
-              <button 
-                onClick={() => {
-                  const newRecord = {
-                    hourly_revenue: 0,
-                    subscription_revenue: 0,
-                    reservation_revenue: 0,
-                    product_revenue: 0,
-                    total_revenue: 0,
-                    maintenance: 0,
-                    daily_expenses: 0,
-                    salaries: 0,
-                    total_expenses: 0,
-                    net_profit: 0,
-                    notes: null,
-                    date: format(selectedDate, 'yyyy-MM-dd')
-                  };
-                  setData(newRecord);
-                  setEditedData(newRecord);
-                  setError(null);
-                }}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg"
-              >
-                إنشاء سجل جديد لهذا التاريخ
-              </button>
-            )}
+            <button 
+              onClick={handleEditToggle}
+              className="mt-4 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg"
+            >
+              إنشاء سجل جديد لهذا التاريخ
+            </button>
           </div>
-        ) : data ? (
+          ) : (data || editMode) ? (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
               <RevenueCard
                 title="إيراد الساعات"
                 icon={BookOpen}
-                value={data.hourly_revenue}
+                value={data?.hourly_revenue || 0}
                 editMode={editMode}
                 editedValue={editedData.hourly_revenue}
                 onValueChange={(v) => handleInputChange('hourly_revenue', v)}
@@ -412,7 +424,7 @@ const fetchDataForDate = async (date: Date) => {
               />
             </div>
 
-            {editMode && (
+             {editMode && (
               <div className="flex justify-end mt-4">
                 <button
                   onClick={handleSaveChanges}

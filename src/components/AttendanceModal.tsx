@@ -7,7 +7,7 @@ interface AttendanceModalProps {
   totalDays: number;
   onClose: () => void;
   clientName: string;
-  onAttendanceMarked: () => void; // Optional callback for when attendance is marked
+  onAttendanceMarked: () => void;
 }
 
 export const AttendanceModal: React.FC<AttendanceModalProps> = ({
@@ -15,9 +15,10 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
   totalDays,
   onClose,
   clientName,
-  onAttendanceMarked
+  onAttendanceMarked,
 }) => {
   const [attendance, setAttendance] = useState<boolean[]>([]);
+  const [timestamps, setTimestamps] = useState<(string | null)[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -27,17 +28,20 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
       try {
         const { data, error } = await supabase
           .from("subscription_days")
-          .select("day_number")
+          .select("day_number, created_at")
           .eq("subscription_id", subscriptionId)
           .order("day_number", { ascending: true });
 
-        if (error) throw error;
-
         const days = Array(totalDays).fill(false);
+        const stamps = Array(totalDays).fill(null);
+
         data.forEach((entry) => {
           days[entry.day_number - 1] = true;
+          stamps[entry.day_number - 1] = entry.created_at;
         });
+
         setAttendance(days);
+        setTimestamps(stamps);
       } catch (error) {
         console.error("Error fetching attendance:", error);
       } finally {
@@ -50,17 +54,23 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
 
   const toggleDay = (index: number) => {
     const updated = [...attendance];
-    updated[index] = !updated[index];
+    const updatedTimestamps = [...timestamps];
+
+    if (updated[index]) {
+      updated[index] = false;
+      updatedTimestamps[index] = null;
+    } else {
+      updated[index] = true;
+      updatedTimestamps[index] = new Date().toISOString();
+    }
+
     setAttendance(updated);
+    setTimestamps(updatedTimestamps);
   };
 
   const saveAttendance = async () => {
-    console.log("Attendance state before saving:", attendance);
-
     setSaving(true);
     try {
-        console.log("Attendance state before saving:", attendance);
-
       await supabase
         .from("subscription_days")
         .delete()
@@ -68,13 +78,19 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
 
       const daysToInsert = attendance
         .map((present, index) =>
-          present ? { subscription_id: subscriptionId, day_number: index + 1 } : null
+          present
+            ? {
+                subscription_id: subscriptionId,
+                day_number: index + 1,
+              }
+            : null
         )
         .filter(Boolean);
 
       if (daysToInsert.length > 0) {
         await supabase.from("subscription_days").insert(daysToInsert);
       }
+
       onAttendanceMarked();
       onClose();
     } catch (error) {
@@ -85,7 +101,8 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
   };
 
   const attendedDays = attendance.filter(Boolean).length;
-  const attendancePercentage = totalDays > 0 ? Math.round((attendedDays / totalDays) * 100) : 0;
+  const attendancePercentage =
+    totalDays > 0 ? Math.round((attendedDays / totalDays) * 100) : 0;
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -115,7 +132,6 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                 <span className="font-medium text-white">
                   {attendedDays} من {totalDays} يوم ({attendancePercentage}%)
                 </span>
-                
               </div>
               <div className="w-full bg-slate-700 rounded-full h-2.5">
                 <div
@@ -125,27 +141,45 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
               </div>
             </div>
 
-        <div className="mb-6">
-  <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(totalDays, 7)}, minmax(0, 1fr))` }}>
-    {Array.from({ length: totalDays }).map((_, index) => (
-      <button
-        key={index}
-        onClick={() => toggleDay(index)}
-        className={`w-12 h-12 flex items-center justify-center rounded-md text-sm font-bold transition-colors border-2 ${
-          attendance[index]
-            ? "bg-green-600 text-white border-green-500 hover:bg-green-700"
-            : "bg-slate-700 text-slate-400 border-slate-500 hover:bg-slate-600 hover:text-white"
-        }`}
-      >
-        {index + 1}
-      </button>
-    ))}
-  </div>
-</div>
+            <div className="mb-6">
+              <div
+                className="grid gap-3"
+                style={{
+                  gridTemplateColumns: `repeat(${Math.min(totalDays, 7)}, minmax(0, 1fr))`,
+                }}
+              >
+                {Array.from({ length: totalDays }).map((_, index) => {
+                  const isAttended = attendance[index];
+                  const createdAt = timestamps[index];
+                  const displayDate = createdAt
+                    ? new Date(createdAt).toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      })
+                    : null;
 
-   
+                  return (
+                    <div key={index} className="flex flex-col items-center gap-1">
+                      {displayDate && (
+                        <span className="text-xs text-green-400">{displayDate}</span>
+                      )}
+                      <button
+                        onClick={() => toggleDay(index)}
+                        className={`w-12 h-12 flex items-center justify-center rounded-md text-sm font-bold transition-colors border-2 ${
+                          isAttended
+                            ? "bg-green-600 text-white border-green-500 hover:bg-green-700"
+                            : "bg-slate-700 text-slate-400 border-slate-500 hover:bg-slate-600 hover:text-white"
+                        }`}
+                      >
+                        {index + 1}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
 
-            {/* الأسطورة */}
             <div className="flex items-center justify-between pt-4 border-t border-slate-700">
               <div className="flex items-center gap-2 text-slate-400 text-sm">
                 <div className="flex items-center gap-1">
