@@ -1089,7 +1089,7 @@ const filteredVisits = visits
           </div>
 
           <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 h-[600px] overflow-y-scroll">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-6 sticky top-0 border-slate-700 px-6">
               <div>
                 <h2 className="text-xl font-semibold text-white flex items-center gap-2">
                   <Users className="h-5 w-5" />
