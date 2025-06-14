@@ -33,12 +33,45 @@ const Expenses = () => {
     month: new Date().getMonth() + 1,
   });
 
-  useEffect(() => {
-    if (user) {
-      fetchExpenses();
-      fetchTotalRevenue();
-    }
-  }, [user, filter.year, filter.month]);
+useEffect(() => {
+  if (user) {
+    const run = async () => {
+      await fetchExpenses();
+      await fetchTotalRevenue();
+
+      const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+
+      const maintenance = getCategoryTotal("maintenance");
+      const dailyExpenses = getCategoryTotal("daily_expenses");
+      const salaries = getCategoryTotal("salaries");
+      const totalExp = maintenance + dailyExpenses + salaries;
+      const net = totalRevenue - totalExp;
+
+      const { error } = await supabase.from("profit_archive").upsert([
+        {
+          date: today,
+          maintenance,
+          daily_expenses: dailyExpenses,
+          salaries,
+          total_expenses: totalExp,
+          net_profit: net,
+          updated_at: new Date().toISOString()
+        }
+      ], {
+        onConflict: ['date']
+      });
+
+      if (error) {
+        console.error("\u0641\u0634\u0644 \u062d\u0641\u0638 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a \u0641\u064a profit_archive:", error);
+      } else {
+        console.log("\u2705 \u062a\u0645 \u062d\u0641\u0638 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0645\u0635\u0631\u0648\u0641\u0627\u062a \u0641\u064a profit_archive");
+      }
+    };
+
+    run();
+  }
+}, [user, filter.year, filter.month]);
+
 
   const fetchExpenses = async () => {
     try {

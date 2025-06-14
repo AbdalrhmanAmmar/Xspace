@@ -12,6 +12,7 @@ import {
   SquareUserRound,
   Crown,
   AlarmClockMinus,
+  BadgeDollarSign,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -186,6 +187,21 @@ export const Home = () => {
                 </h2>
                 <p className="text-slate-600 dark:text-slate-300">
                   عرض تقييمات المنتجات
+                </p>
+              </Link>
+            )}
+            {isAdmin && (
+              <Link
+                to="/MoneyArchive"
+                className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
+              >
+               
+                <BadgeDollarSign className="h-12 w-12 text-primary-600 dark:text-primary-400 mb-4 group-hover:scale-110 transition-transform" />
+                <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">
+                  سجل المصروفات
+                </h2>
+                <p className="text-slate-600 dark:text-slate-300">
+                  عرض جميع المصروفات
                 </p>
               </Link>
             )}

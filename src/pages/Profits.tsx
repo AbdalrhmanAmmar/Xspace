@@ -1,3 +1,4 @@
+// Profits.tsx - معدل لحفظ بيانات اليوم تلقائيًا في جدول money_archive
 import React, { useState, useEffect } from "react";
 import { DollarSign, Package, Users, Calendar, CreditCard } from "lucide-react";
 import { supabase } from "../lib/supabase";
@@ -40,37 +41,21 @@ function Profits() {
       const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-      // جلب بيانات الزيارات العادية
       const { data: visitsData } = await supabase.from("visits").select("total_amount, created_at");
-      
-      // جلب بيانات الزيارات المحذوفة
       const { data: deletedVisitsData } = await supabase.from("deleted_visit").select("total_amount, start_time, time_amount, product_amount");
 
-      // دمج بيانات الزيارات العادية والمحذوفة
       const allVisitsData = [
-        ...(visitsData || []).map(v => ({ 
-          amount: parseFloat(v.total_amount) || 0,
-          created_at: v.created_at 
-        })),
-        ...(deletedVisitsData || []).map(v => ({ 
-          amount: parseFloat(v.total_amount) || parseFloat(v.time_amount) || 0,
-          created_at: v.start_time 
-        }))
+        ...(visitsData || []).map(v => ({ amount: parseFloat(v.total_amount) || 0, created_at: v.created_at })),
+        ...(deletedVisitsData || []).map(v => ({ amount: parseFloat(v.total_amount) || parseFloat(v.time_amount) || 0, created_at: v.start_time }))
       ];
 
       const { data: subscriptionsData } = await supabase.from("subscriptions").select("price, created_at");
       const { data: reservationsData } = await supabase.from("reservations").select("total_price, created_at");
 
-      // جلب بيانات منتجات الزيارات العادية
       const { data: visitProductsData } = await supabase.from("visit_products").select("price, quantity, created_at");
-      
-      // جلب بيانات منتجات الزيارات المحذوفة
       const { data: deletedVisitProductsData } = await supabase.from("deleted_visit_products").select("price, quantity, created_at");
-      
-      // جلب بيانات مبيعات المنتجات
       const { data: productSalesData } = await supabase.from("product_sales").select("price, buy_price, quantity, created_at");
 
-      // دمج جميع بيانات المنتجات
       const allProductsData = [
         ...(visitProductsData || []),
         ...(deletedVisitProductsData || []),
@@ -78,78 +63,51 @@ function Profits() {
       ];
 
       const calculatePeriodRevenue = (startDate: Date): Revenue => {
-        // إيرادات الزيارات (الساعات) - تشمل العادية والمحذوفة
-        const hourlyRevenue = allVisitsData
-          .filter(v => new Date(v.created_at) >= startDate)
-          .reduce((sum, v) => sum + (v.amount || 0), 0);
+        const hourlyRevenue = allVisitsData.filter(v => new Date(v.created_at) >= startDate).reduce((sum, v) => sum + (v.amount || 0), 0);
+        const subscriptionRevenue = (subscriptionsData || []).filter(s => new Date(s.created_at) >= startDate).reduce((sum, s) => sum + (s.price || 0), 0);
+        const reservationRevenue = (reservationsData || []).filter(r => new Date(r.created_at) >= startDate).reduce((sum, r) => sum + (r.total_price || 0), 0);
+        const productRevenue = allProductsData.filter(p => new Date(p.created_at) >= startDate).reduce((sum, p) => sum + ((parseFloat(p.price) || 0) * (p.quantity || 1)), 0);
 
-        // إيرادات الاشتراكات
-        const subscriptionRevenue = (subscriptionsData || [])
-          .filter(s => new Date(s.created_at) >= startDate)
-          .reduce((sum, s) => sum + (s.price || 0), 0);
-
-        // إيرادات الحجوزات
-        const reservationRevenue = (reservationsData || [])
-          .filter(r => new Date(r.created_at) >= startDate)
-          .reduce((sum, r) => sum + (r.total_price || 0), 0);
-
-        // إيرادات المنتجات - تشمل العادية والمحذوفة ومبيعات المنتجات
-        const productRevenue = allProductsData
-          .filter(p => new Date(p.created_at) >= startDate)
-          .reduce((sum, p) => sum + ((parseFloat(p.price) || 0) * (p.quantity || 1)), 0);
-
-        // صافي ربح المنتجات - يشمل المنتجات المحذوفة أيضاً
         let productProfit = 0;
 
-        // ربح من مبيعات المنتجات العادية (product_sales)
-productProfit += (visitProductsData || [])
-  .filter(p => new Date(p.created_at) >= startDate)
-  .reduce((sum, p) => {
-    const sellPrice = parseFloat(p.price) || 0;
-    const buyPrice = p.buy_price !== undefined ? parseFloat(p.buy_price) : sellPrice * 0.7; // ✅ استخدم buy_price إذا موجود
-    const quantity = p.quantity || 1;
-    return sum + ((sellPrice - buyPrice) * quantity);
-  }, 0);
+        productProfit += (productSalesData || []).filter(p => new Date(p.created_at) >= startDate).reduce((sum, p) => {
+          const sellPrice = parseFloat(p.price) || 0;
+          const buyPrice = p.buy_price !== undefined ? parseFloat(p.buy_price) : sellPrice * 0.7;
+          const quantity = p.quantity || 1;
+          return sum + ((sellPrice - buyPrice) * quantity);
+        }, 0);
 
-        // ربح من منتجات الزيارات العادية
-        productProfit += (visitProductsData || [])
-          .filter(p => new Date(p.created_at) >= startDate)
-          .reduce((sum, p) => {
-            // نفترض هامش ربح 30% إذا لم يكن لدينا سعر الشراء
-            const sellPrice = parseFloat(p.price) || 0;
-            const estimatedBuyPrice = sellPrice * 0.7; // 30% هامش ربح
-            const quantity = p.quantity || 1;
-            return sum + ((sellPrice - estimatedBuyPrice) * quantity);
-          }, 0);
-
-        // ربح من منتجات الزيارات المحذوفة
-productProfit += (deletedVisitProductsData || [])
-  .filter(p => new Date(p.created_at) >= startDate)
-  .reduce((sum, p) => {
-    const sellPrice = parseFloat(p.price) || 0;
-    const buyPrice = p.buy_price !== undefined ? parseFloat(p.buy_price) : sellPrice * 0.7;
-    const quantity = p.quantity || 1;
-    return sum + ((sellPrice - buyPrice) * quantity);
-  }, 0);
-
-        // إجمالي الإيرادات
         const totalRevenue = hourlyRevenue + subscriptionRevenue + reservationRevenue + productRevenue;
 
-        return {
-          hourlyRevenue,
-          subscriptionRevenue,
-          reservationRevenue,
-          productRevenue,
-          totalRevenue,
-          productProfit,
-        };
+        return { hourlyRevenue, subscriptionRevenue, reservationRevenue, productRevenue, totalRevenue, productProfit };
       };
 
+      const dailyData = calculatePeriodRevenue(startOfDay);
+
       setRevenue({
-        daily: calculatePeriodRevenue(startOfDay),
+        daily: dailyData,
         weekly: calculatePeriodRevenue(startOfWeek),
         monthly: calculatePeriodRevenue(startOfMonth),
       });
+
+      const today = new Date().toISOString().split("T")[0];
+      await supabase.from("profit_archive").upsert([
+        {
+          date: today,
+          hourly_revenue: dailyData.hourlyRevenue,
+          subscription_revenue: dailyData.subscriptionRevenue,
+          reservation_revenue: dailyData.reservationRevenue,
+          product_revenue: dailyData.productRevenue,
+          total_revenue: dailyData.totalRevenue,
+          net_profit: dailyData.productProfit,
+          maintenance: 0,
+          daily_expenses: 0,
+          salaries: 0,
+          total_expenses: 0,
+          notes: "تم الحفظ تلقائيًا من Profits component",
+          updated_at: new Date().toISOString()
+        }
+      ], { onConflict: ["date"] });
     } catch (err) {
       console.error("Error fetching revenue:", err);
       setError("حدث خطأ أثناء تحميل البيانات");
