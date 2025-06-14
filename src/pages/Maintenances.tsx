@@ -33,6 +33,14 @@ const Expenses = () => {
     month: new Date().getMonth() + 1,
   });
 
+  const formatGregorianDate = (date: Date) => {
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+};
+
 useEffect(() => {
   if (user) {
     const run = async () => {
@@ -486,7 +494,7 @@ useEffect(() => {
                     </span>
                   </div>
                   <p className="text-slate-400 mt-2">
-                    {expense.date.toLocaleDateString("ar-SA")}
+                    {formatGregorianDate(expense.date)}
                   </p>
                 </div>
                 <p className="text-xl font-bold text-red-400">
