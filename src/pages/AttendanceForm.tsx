@@ -17,6 +17,7 @@ import {
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import 'dayjs/locale/ar';
+import { useAuth } from "../contexts/AuthContext";
 
 dayjs.extend(relativeTime);
 dayjs.locale('ar');
@@ -36,6 +37,10 @@ interface Attendance {
 }
 
 const AttendanceTracker = () => {
+
+    const { user } = useAuth();
+    
+    const isAdmin = user?.username == "admin@xspace.com";
   const [name, setName] = useState("");
   const [attendanceList, setAttendanceList] = useState<Attendance[]>([]);
   const [filteredList, setFilteredList] = useState<Attendance[]>([]);
@@ -222,6 +227,10 @@ const AttendanceTracker = () => {
         </div>
       )}
 
+
+{isAdmin && (
+  
+
       <div className="space-y-3">
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-semibold flex items-center gap-2">
@@ -374,6 +383,8 @@ const AttendanceTracker = () => {
           </>
         )}
       </div>
+      )}
+
     </div>
   );
 };
