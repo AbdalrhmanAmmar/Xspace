@@ -176,7 +176,7 @@ export const Home = () => {
               </Link>
             )}
             
-            {isAdmin && (
+            {/* {isAdmin && (
               <Link
                 to="/AbsentClient"
                 className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
@@ -189,8 +189,8 @@ export const Home = () => {
                   عرض تقييمات المنتجات
                 </p>
               </Link>
-            )}
-            {isAdmin && (
+            )} */}
+            {/* {isAdmin && (
               <Link
                 to="/MoneyArchive"
                 className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
@@ -204,7 +204,7 @@ export const Home = () => {
                   عرض جميع المصروفات
                 </p>
               </Link>
-            )}
+            )} */}
         </div>
       </main>
     </div>
