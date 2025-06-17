@@ -73,7 +73,7 @@ export default function MoneyArchive() {
 
     const formatted = format(date, 'yyyy-MM-dd');
     const { data: queryData, error } = await supabase
-      .from("profit_archive")
+      .from("money_archive")
       .select("*")
       .eq("date", formatted);
 
@@ -133,7 +133,7 @@ export default function MoneyArchive() {
     const end = format(endDate, 'yyyy-MM-dd');
 
     const { data: queryData, error } = await supabase
-      .from("profit_archive")
+      .from("money_archive")
       .select("*")
       .gte("date", start)
       .lte("date", end)
@@ -224,7 +224,7 @@ export default function MoneyArchive() {
     };
 
     const { data: updatedData, error } = await supabase
-      .from("profit_archive")
+      .from("money_archive")
       .upsert(updates)
       .eq("date", formattedDate)
       .select()

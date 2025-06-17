@@ -1,7 +1,9 @@
-// Profits.tsx - معدل لحفظ بيانات اليوم تلقائيًا في جدول money_archive
 import React, { useState, useEffect } from "react";
-import { DollarSign, Package, Users, Calendar, CreditCard } from "lucide-react";
+import { DollarSign, Package, Users, Calendar as CalendarIcon, CreditCard } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { ar } from "date-fns/locale";
 
 interface Revenue {
   hourlyRevenue: number;
@@ -9,29 +11,35 @@ interface Revenue {
   reservationRevenue: number;
   productRevenue: number;
   totalRevenue: number;
-  productProfit: number; // ✅ صافي الربح من المنتجات
+  productProfit: number;
 }
 
 interface RevenueByPeriod {
   daily: Revenue;
   weekly: Revenue;
   monthly: Revenue;
+  custom: Revenue;
 }
+
+type TimeFilter = 'daily' | 'weekly' | 'monthly' | 'custom';
 
 function Profits() {
   const [revenue, setRevenue] = useState<RevenueByPeriod>({
     daily: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0, productProfit: 0 },
     weekly: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0, productProfit: 0 },
     monthly: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0, productProfit: 0 },
+    custom: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0, productProfit: 0 },
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>('daily');
+  const [customDate, setCustomDate] = useState<Date | null>(new Date());
 
   useEffect(() => {
     fetchRevenue();
   }, []);
 
-  const fetchRevenue = async () => {
+  const fetchRevenue = async (selectedDate?: Date) => {
     try {
       setLoading(true);
       setError(null);
@@ -62,15 +70,23 @@ function Profits() {
         ...(productSalesData || [])
       ];
 
-      const calculatePeriodRevenue = (startDate: Date): Revenue => {
-        const hourlyRevenue = allVisitsData.filter(v => new Date(v.created_at) >= startDate).reduce((sum, v) => sum + (v.amount || 0), 0);
-        const subscriptionRevenue = (subscriptionsData || []).filter(s => new Date(s.created_at) >= startDate).reduce((sum, s) => sum + (s.price || 0), 0);
-        const reservationRevenue = (reservationsData || []).filter(r => new Date(r.created_at) >= startDate).reduce((sum, r) => sum + (r.total_price || 0), 0);
-        const productRevenue = allProductsData.filter(p => new Date(p.created_at) >= startDate).reduce((sum, p) => sum + ((parseFloat(p.price) || 0) * (p.quantity || 1)), 0);
+      const calculatePeriodRevenue = (startDate: Date, endDate?: Date): Revenue => {
+        const filterByDate = (date: string) => {
+          const created = new Date(date);
+          if (endDate) {
+            return created >= startDate && created <= endDate;
+          }
+          return created >= startDate;
+        };
+
+        const hourlyRevenue = allVisitsData.filter(v => filterByDate(v.created_at)).reduce((sum, v) => sum + (v.amount || 0), 0);
+        const subscriptionRevenue = (subscriptionsData || []).filter(s => filterByDate(s.created_at)).reduce((sum, s) => sum + (s.price || 0), 0);
+        const reservationRevenue = (reservationsData || []).filter(r => filterByDate(r.created_at)).reduce((sum, r) => sum + (r.total_price || 0), 0);
+        const productRevenue = allProductsData.filter(p => filterByDate(p.created_at)).reduce((sum, p) => sum + ((parseFloat(p.price) || 0) * (p.quantity || 1)), 0);
 
         let productProfit = 0;
 
-        productProfit += (productSalesData || []).filter(p => new Date(p.created_at) >= startDate).reduce((sum, p) => {
+        productProfit += (productSalesData || []).filter(p => filterByDate(p.created_at)).reduce((sum, p) => {
           const sellPrice = parseFloat(p.price) || 0;
           const buyPrice = p.buy_price !== undefined ? parseFloat(p.buy_price) : sellPrice * 0.7;
           const quantity = p.quantity || 1;
@@ -83,11 +99,22 @@ function Profits() {
       };
 
       const dailyData = calculatePeriodRevenue(startOfDay);
+      const weeklyData = calculatePeriodRevenue(startOfWeek);
+      const monthlyData = calculatePeriodRevenue(startOfMonth);
+      const customData = selectedDate 
+        ? calculatePeriodRevenue(
+            new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()),
+            timeFilter === 'monthly' 
+              ? new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0)
+              : undefined
+          )
+        : { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0, productProfit: 0 };
 
       setRevenue({
         daily: dailyData,
-        weekly: calculatePeriodRevenue(startOfWeek),
-        monthly: calculatePeriodRevenue(startOfMonth),
+        weekly: weeklyData,
+        monthly: monthlyData,
+        custom: customData
       });
 
       const today = new Date().toISOString().split("T")[0];
@@ -116,6 +143,22 @@ function Profits() {
     }
   };
 
+  const handleDateChange = (date: Date | null) => {
+    setCustomDate(date);
+    if (date) {
+      fetchRevenue(date);
+    }
+  };
+
+  const handleFilterChange = (filter: TimeFilter) => {
+    setTimeFilter(filter);
+    if (filter !== 'custom') {
+      fetchRevenue();
+    } else if (customDate) {
+      fetchRevenue(customDate);
+    }
+  };
+
   const formatCurrency = (amount: number) => `${amount.toLocaleString("ar-EG")} جنيه`;
 
   const RevenueCard = ({ title, icon: Icon, amount, color }: { title: string; icon: any; amount: number; color: string }) => (
@@ -132,36 +175,112 @@ function Profits() {
     </div>
   );
 
-  const PeriodSection = ({ title, data }: { title: string; data: Revenue }) => (
-    <div className="space-y-6">
-      <h2 className="text-xl font-semibold text-white">{title}</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <RevenueCard title="إيرادات الساعات (شامل المحذوف)" icon={Users} amount={data.hourlyRevenue} color="bg-blue-600" />
-        <RevenueCard title="إيرادات الاشتراكات" icon={CreditCard} amount={data.subscriptionRevenue} color="bg-green-600" />
-        <RevenueCard title="إيرادات الحجوزات" icon={Calendar} amount={data.reservationRevenue} color="bg-purple-600" />
-        <RevenueCard title="إيرادات المنتجات (شامل المحذوف)" icon={Package} amount={data.productRevenue} color="bg-orange-600" />
-        <RevenueCard title="صافي ربح المنتجات (شامل المحذوف)" icon={DollarSign} amount={data.productProfit} color="bg-lime-600" />
-        <div className="md:col-span-2 lg:col-span-3">
-          <RevenueCard title="إجمالي الإيرادات" icon={DollarSign} amount={data.totalRevenue} color="bg-emerald-600" />
-        </div>
-      </div>
-    </div>
+  const TimeFilterButton = ({ value, label, onClick }: { value: TimeFilter; label: string; onClick: () => void }) => (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2 rounded-lg transition-colors ${
+        timeFilter === value 
+          ? 'bg-blue-600 text-white' 
+          : 'bg-white/10 text-slate-300 hover:bg-white/20'
+      }`}
+    >
+      {label}
+    </button>
   );
 
   return (
     <div className="min-h-screen bg-slate-900">
       <div className="max-w-7xl mx-auto p-6">
-        <h1 className="text-3xl font-bold text-white mb-8">الأرباح والإيرادات (شامل المحذوف)</h1>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+          <h1 className="text-3xl font-bold text-white">الأرباح والإيرادات (شامل المحذوف)</h1>
+          
+          <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
+            <div className="flex gap-2 bg-white/10 backdrop-blur-lg p-1 rounded-lg border border-white/20">
+              <TimeFilterButton value="daily" label="اليوم" onClick={() => handleFilterChange('daily')} />
+              <TimeFilterButton value="weekly" label="الأسبوع" onClick={() => handleFilterChange('weekly')} />
+              <TimeFilterButton value="monthly" label="الشهر" onClick={() => handleFilterChange('monthly')} />
+              <TimeFilterButton value="custom" label="اختر تاريخ" onClick={() => handleFilterChange('custom')} />
+            </div>
+
+            {timeFilter === 'custom' && (
+              <div className="relative z-50">
+                <DatePicker
+                  selected={customDate}
+                  onChange={handleDateChange}
+                  locale={ar}
+                  dateFormat="yyyy/MM/dd"
+                  placeholderText="اختر تاريخ"
+                  className="bg-white/10 backdrop-blur-lg border border-white/20 text-white p-2 rounded-lg w-full sm:w-48 text-center"
+                  isClearable
+                  showMonthDropdown
+                  showYearDropdown
+                  dropdownMode="select"
+                  withPortal
+                  popperPlacement="bottom-end"
+                  popperClassName="z-50"
+                  calendarClassName="bg-slate-800 border border-white/20 text-white"
+                  wrapperClassName="z-50"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+        
         {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-lg mb-6">{error}</div>}
         {loading ? (
           <div className="text-center py-12">
             <p className="text-xl text-slate-400">جاري تحميل البيانات...</p>
           </div>
         ) : (
-          <div className="space-y-12">
-            <PeriodSection title="إيرادات اليوم" data={revenue.daily} />
-            <PeriodSection title="إيرادات الأسبوع" data={revenue.weekly} />
-            <PeriodSection title="إيرادات الشهر" data={revenue.monthly} />
+          <div className="space-y-6">
+            {timeFilter === 'custom' && customDate && (
+              <h2 className="text-xl font-semibold text-white">
+                {timeFilter === 'monthly' 
+                  ? `إيرادات شهر ${customDate.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' })}`
+                  : `إيرادات يوم ${customDate.toLocaleDateString('ar-EG')}`}
+              </h2>
+            )}
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <RevenueCard 
+                title="إيرادات الساعات (شامل المحذوف)" 
+                icon={Users} 
+                amount={revenue[timeFilter].hourlyRevenue} 
+                color="bg-blue-600" 
+              />
+              <RevenueCard 
+                title="إيرادات الاشتراكات" 
+                icon={CreditCard} 
+                amount={revenue[timeFilter].subscriptionRevenue} 
+                color="bg-green-600" 
+              />
+              <RevenueCard 
+                title="إيرادات الحجوزات" 
+                icon={CalendarIcon} 
+                amount={revenue[timeFilter].reservationRevenue} 
+                color="bg-purple-600" 
+              />
+              <RevenueCard 
+                title="إيرادات المنتجات (شامل المحذوف)" 
+                icon={Package} 
+                amount={revenue[timeFilter].productRevenue} 
+                color="bg-orange-600" 
+              />
+              <RevenueCard 
+                title="صافي ربح المنتجات (شامل المحذوف)" 
+                icon={DollarSign} 
+                amount={revenue[timeFilter].productProfit} 
+                color="bg-lime-600" 
+              />
+              <div className="md:col-span-2 lg:col-span-3">
+                <RevenueCard 
+                  title="إجمالي الإيرادات" 
+                  icon={DollarSign} 
+                  amount={revenue[timeFilter].totalRevenue} 
+                  color="bg-emerald-600" 
+                />
+              </div>
+            </div>
           </div>
         )}
       </div>
