@@ -431,6 +431,7 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete }: SaleModalProps) =
               >
                 إلغاء
               </button>
+            
               <button
                 onClick={handleSubmit}
                 disabled={loading || cart.length === 0}
@@ -445,6 +446,7 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete }: SaleModalProps) =
                   "تأكيد البيع"
                 )}
               </button>
+                <button className="bg-indigo-700  rounded-md px-4 gap-2 justify-center">اضف عميل</button>
             </div>
           </div>
         </div>
@@ -469,6 +471,7 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete }: SaleModalProps) =
               >
                 تم
               </button>
+            
             </div>
           </div>
         </div>
