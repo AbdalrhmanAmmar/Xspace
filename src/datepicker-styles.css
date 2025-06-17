@@ -1,0 +1,32 @@
+/* حل مشكلة z-index للتقويم */
+.react-datepicker-custom {
+  font-family: inherit;
+  z-index: 9999 !important;
+  background-color: #1e293b;
+  border: 1px solid #334155;
+  color: white;
+}
+
+.react-datepicker-custom .react-datepicker__header {
+  background-color: #1e293b;
+  border-bottom: 1px solid #334155;
+}
+
+.react-datepicker-custom .react-datepicker__current-month,
+.react-datepicker-custom .react-datepicker__day-name,
+.react-datepicker-custom .react-datepicker__day {
+  color: white;
+}
+
+.react-datepicker-custom .react-datepicker__day--selected {
+  background-color: #3b82f6;
+  color: white;
+}
+
+.react-datepicker-custom .react-datepicker__day:hover {
+  background-color: #334155;
+}
+
+.react-datepicker-popper {
+  z-index: 9999 !important;
+}

@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { Wrench, Plus, X, Calendar, Filter } from "lucide-react";
+import { Wrench, Plus, X, Calendar as CalendarIcon, Filter } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { registerLocale, setDefaultLocale } from "react-datepicker";
+import ar from "date-fns/locale/ar";
+
+registerLocale('ar', ar);
 
 interface Expense {
   id: string;
@@ -28,66 +34,44 @@ const Expenses = () => {
     date: new Date().toISOString().split("T")[0],
     category: "maintenance" as "maintenance" | "daily_expenses" | "salaries",
   });
-  const [filter, setFilter] = useState({
-    year: new Date().getFullYear(),
-    month: new Date().getMonth() + 1,
-  });
+  const [timeFilter, setTimeFilter] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily');
+  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
 
   const formatGregorianDate = (date: Date) => {
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-};
+    return date.toLocaleDateString('ar-EG', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  };
 
-useEffect(() => {
-  if (user) {
-    const run = async () => {
-      await fetchExpenses();
-      await fetchTotalRevenue();
-
-      const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-
-      const maintenance = getCategoryTotal("maintenance");
-      const dailyExpenses = getCategoryTotal("daily_expenses");
-      const salaries = getCategoryTotal("salaries");
-      const totalExp = maintenance + dailyExpenses + salaries;
-      const net = totalRevenue - totalExp;
-
-      const { error } = await supabase.from("profit_archive").upsert([
-        {
-          date: today,
-          maintenance,
-          daily_expenses: dailyExpenses,
-          salaries,
-          total_expenses: totalExp,
-          net_profit: net,
-          updated_at: new Date().toISOString()
-        }
-      ], {
-        onConflict: ['date']
-      });
-
-      if (error) {
-        console.error("\u0641\u0634\u0644 \u062d\u0641\u0638 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a \u0641\u064a profit_archive:", error);
-      } else {
-        console.log("\u2705 \u062a\u0645 \u062d\u0641\u0638 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0645\u0635\u0631\u0648\u0641\u0627\u062a \u0641\u064a profit_archive");
-      }
-    };
-
-    run();
-  }
-}, [user, filter.year, filter.month]);
-
+  useEffect(() => {
+    if (user) {
+      fetchExpenses();
+      fetchTotalRevenue();
+    }
+  }, [user, timeFilter, selectedDate]);
 
   const fetchExpenses = async () => {
     try {
       setLoading(true);
       
-      // Create date range for the selected month and year
-      const startDate = new Date(filter.year, filter.month - 1, 1).toISOString();
-      const endDate = new Date(filter.year, filter.month, 0).toISOString();
+      let startDate, endDate;
+      const date = selectedDate || new Date();
+      
+      if (timeFilter === 'daily') {
+        startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).toISOString();
+        endDate = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).toISOString();
+      } else if (timeFilter === 'weekly') {
+        startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate() - date.getDay()).toISOString();
+        endDate = new Date(date.getFullYear(), date.getMonth(), date.getDate() - date.getDay() + 7).toISOString();
+      } else if (timeFilter === 'monthly') {
+        startDate = new Date(date.getFullYear(), date.getMonth(), 1).toISOString();
+        endDate = new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString();
+      } else { // custom
+        startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).toISOString();
+        endDate = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).toISOString();
+      }
       
       const { data, error } = await supabase
         .from("expenses")
@@ -104,6 +88,30 @@ useEffect(() => {
           date: new Date(record.date),
         }))
       );
+
+      // Update profit archive
+      const today = new Date().toISOString().split("T")[0];
+      const maintenance = getCategoryTotal("maintenance");
+      const dailyExpenses = getCategoryTotal("daily_expenses");
+      const salaries = getCategoryTotal("salaries");
+      const totalExp = maintenance + dailyExpenses + salaries;
+      const net = totalRevenue - totalExp;
+
+      const { error: archiveError } = await supabase.from("profit_archive").upsert([
+        {
+          date: today,
+          maintenance,
+          daily_expenses: dailyExpenses,
+          salaries,
+          total_expenses: totalExp,
+          net_profit: net,
+          updated_at: new Date().toISOString()
+        }
+      ], { onConflict: ['date'] });
+
+      if (archiveError) {
+        console.error("فشل حفظ البيانات في profit_archive:", archiveError);
+      }
     } catch (err) {
       console.error("Error fetching expenses:", err);
       setError("حدث خطأ أثناء تحميل السجلات");
@@ -187,7 +195,8 @@ useEffect(() => {
       setShowAddForm(false);
     } catch (err: any) {
       console.error("Error saving expense record:", err);
- setError(err?.message || JSON.stringify(err) || "حدث خطأ أثناء حفظ السجل");    } finally {
+      setError(err?.message || JSON.stringify(err) || "حدث خطأ أثناء حفظ السجل");
+    } finally {
       setLoading(false);
     }
   };
@@ -234,6 +243,31 @@ useEffect(() => {
     }
   };
 
+  const TimeFilterButton = ({ value, label }: { value: typeof timeFilter; label: string }) => (
+    <button
+      onClick={() => {
+        setTimeFilter(value);
+        if (value !== 'custom') {
+          setSelectedDate(new Date());
+        }
+      }}
+      className={`px-4 py-2 rounded-lg transition-colors ${
+        timeFilter === value 
+          ? 'bg-blue-600 text-white' 
+          : 'bg-white/10 text-slate-300 hover:bg-white/20'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
+  const handleDateChange = (date: Date | null) => {
+    setSelectedDate(date);
+    if (date) {
+      setTimeFilter('custom');
+    }
+  };
+
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -242,38 +276,53 @@ useEffect(() => {
     );
   }
 
-  // Generate years and months for filter
-  const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
-  const months = [
-    { value: 1, name: "يناير" },
-    { value: 2, name: "فبراير" },
-    { value: 3, name: "مارس" },
-    { value: 4, name: "أبريل" },
-    { value: 5, name: "مايو" },
-    { value: 6, name: "يونيو" },
-    { value: 7, name: "يوليو" },
-    { value: 8, name: "أغسطس" },
-    { value: 9, name: "سبتمبر" },
-    { value: 10, name: "أكتوبر" },
-    { value: 11, name: "نوفمبر" },
-    { value: 12, name: "ديسمبر" },
-  ];
-
   return (
     <div className="min-h-screen bg-slate-900">
-      <div className="max-w-6xl mx-auto p-6">
-        <div className="flex items-center justify-between mb-8">
+      <div className="max-w-7xl mx-auto p-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
             <Wrench className="h-8 w-8 text-blue-400" />
             المصروفات
           </h1>
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
-          >
-            <Plus className="h-5 w-5" />
-            إضافة مصروف
-          </button>
+          
+          <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
+            <div className="flex gap-2 bg-white/10 backdrop-blur-lg p-1 rounded-lg border border-white/20">
+              <TimeFilterButton value="daily" label="اليوم" />
+              <TimeFilterButton value="weekly" label="الأسبوع" />
+              <TimeFilterButton value="monthly" label="الشهر" />
+              <TimeFilterButton value="custom" label="اختر تاريخ" />
+            </div>
+
+            {timeFilter === 'custom' && (
+              <div className="relative z-50">
+                <DatePicker
+                  selected={selectedDate}
+                  onChange={handleDateChange}
+                  locale={ar}
+                  dateFormat="yyyy/MM/dd"
+                  placeholderText="اختر تاريخ"
+                  className="bg-white/10 backdrop-blur-lg border border-white/20 text-white p-2 rounded-lg w-full sm:w-48 text-center"
+                  isClearable
+                  showMonthDropdown
+                  showYearDropdown
+                  dropdownMode="select"
+                  withPortal
+                  popperPlacement="bottom-end"
+                  popperClassName="z-50"
+                  calendarClassName="bg-slate-800 border border-white/20 text-white"
+                  wrapperClassName="z-50"
+                />
+              </div>
+            )}
+            
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
+            >
+              <Plus className="h-5 w-5" />
+              إضافة مصروف
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -281,38 +330,6 @@ useEffect(() => {
             {error}
           </div>
         )}
-
-        {/* Filter Section */}
-        <div className="bg-white/10 backdrop-blur-lg p-4 rounded-xl border border-white/20 mb-6">
-          <div className="flex items-center gap-4">
-            <Filter className="h-5 w-5 text-slate-400" />
-            <h3 className="text-sm font-medium text-slate-400">تصفية حسب:</h3>
-            
-            <select
-              value={filter.year}
-              onChange={(e) => setFilter({...filter, year: parseInt(e.target.value)})}
-              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-1 text-white"
-            >
-              {years.map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
-            </select>
-            
-            <select
-              value={filter.month}
-              onChange={(e) => setFilter({...filter, month: parseInt(e.target.value)})}
-              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-1 text-white"
-            >
-              {months.map((month) => (
-                <option key={month.value} value={month.value}>
-                  {month.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -345,7 +362,10 @@ useEffect(() => {
               الفترة المحددة
             </h3>
             <p className="text-xl font-bold text-white">
-              {months.find(m => m.value === filter.month)?.name} {filter.year}
+              {timeFilter === 'daily' && selectedDate && formatGregorianDate(selectedDate)}
+              {timeFilter === 'weekly' && selectedDate && `أسبوع ${selectedDate.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' })}`}
+              {timeFilter === 'monthly' && selectedDate && `${selectedDate.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' })}`}
+              {timeFilter === 'custom' && selectedDate && formatGregorianDate(selectedDate)}
             </p>
           </div>
         </div>

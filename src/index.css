@@ -56,3 +56,37 @@ html.dark {
    background: rgba(255, 255, 255, 0.2);
    border-radius: 10px;
  }
+
+
+ .react-datepicker {
+  font-family: inherit;
+  z-index: 9999 !important;
+}
+
+.react-datepicker-popper {
+  z-index: 9999 !important;
+}
+
+.react-datepicker__header {
+  background-color: #1e293b;
+  color: white;
+  border-bottom: 1px solid #334155;
+}
+
+.react-datepicker__current-month,
+.react-datepicker__day-name {
+  color: white;
+}
+
+.react-datepicker__day {
+  color: white;
+}
+
+.react-datepicker__day--selected {
+  background-color: #3b82f6;
+  color: white;
+}
+
+.react-datepicker__day:hover {
+  background-color: #334155;
+}
