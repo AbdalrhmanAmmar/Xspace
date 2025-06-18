@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { DollarSign, Package, Users, Calendar as CalendarIcon, CreditCard } from "lucide-react";
+import { DollarSign, Package, Users, Calendar as CalendarIcon, CreditCard, Edit2, Save, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -30,10 +30,12 @@ function Profits() {
     monthly: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0, productProfit: 0 },
     custom: { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0, productProfit: 0 },
   });
+  const [editingRevenue, setEditingRevenue] = useState<Revenue | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('daily');
   const [customDate, setCustomDate] = useState<Date | null>(new Date());
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     fetchRevenue();
@@ -152,6 +154,7 @@ function Profits() {
 
   const handleFilterChange = (filter: TimeFilter) => {
     setTimeFilter(filter);
+    setIsEditing(false);
     if (filter !== 'custom') {
       fetchRevenue();
     } else if (customDate) {
@@ -159,17 +162,106 @@ function Profits() {
     }
   };
 
+  const startEditing = () => {
+    setEditingRevenue({ ...revenue[timeFilter] });
+    setIsEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+    setEditingRevenue(null);
+  };
+
+  const saveEdits = async () => {
+    if (!editingRevenue) return;
+
+    try {
+      setLoading(true);
+      
+      // Update local state
+      const updatedRevenue = {
+        ...revenue,
+        [timeFilter]: editingRevenue
+      };
+      setRevenue(updatedRevenue);
+      
+      // Save to database if it's daily data
+      if (timeFilter === 'daily') {
+        const today = new Date().toISOString().split("T")[0];
+        await supabase.from("profit_archive").upsert([
+          {
+            date: today,
+            hourly_revenue: editingRevenue.hourlyRevenue,
+            subscription_revenue: editingRevenue.subscriptionRevenue,
+            reservation_revenue: editingRevenue.reservationRevenue,
+            product_revenue: editingRevenue.productRevenue,
+            total_revenue: editingRevenue.totalRevenue,
+            net_profit: editingRevenue.productProfit,
+            maintenance: 0,
+            daily_expenses: 0,
+            salaries: 0,
+            total_expenses: 0,
+            notes: "تم التعديل يدويًا من Profits component",
+            updated_at: new Date().toISOString()
+          }
+        ], { onConflict: ["date"] });
+      }
+
+      setIsEditing(false);
+      setEditingRevenue(null);
+    } catch (err) {
+      console.error("Error saving edits:", err);
+      setError("حدث خطأ أثناء حفظ التعديلات");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRevenueChange = (field: keyof Revenue, value: string) => {
+    if (!editingRevenue) return;
+    
+    const numValue = parseFloat(value) || 0;
+    setEditingRevenue({
+      ...editingRevenue,
+      [field]: numValue,
+      totalRevenue: field === 'totalRevenue' ? numValue : 
+        editingRevenue.hourlyRevenue + editingRevenue.subscriptionRevenue + 
+        editingRevenue.reservationRevenue + editingRevenue.productRevenue
+    });
+  };
+
   const formatCurrency = (amount: number) => `${amount.toLocaleString("ar-EG")} جنيه`;
 
-  const RevenueCard = ({ title, icon: Icon, amount, color }: { title: string; icon: any; amount: number; color: string }) => (
+  const RevenueCard = ({ 
+    title, 
+    icon: Icon, 
+    amount, 
+    color,
+    field
+  }: { 
+    title: string; 
+    icon: any; 
+    amount: number; 
+    color: string;
+    field?: keyof Revenue;
+  }) => (
     <div className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20">
       <div className="flex items-center gap-4">
         <div className={`p-3 rounded-lg ${color}`}>
           <Icon className="h-6 w-6 text-white" />
         </div>
-        <div>
+        <div className="flex-1">
           <h3 className="text-sm font-medium text-slate-400">{title}</h3>
-          <p className="text-2xl font-bold text-white mt-1">{formatCurrency(amount)}</p>
+          {isEditing && field ? (
+            <input
+              type="number"
+              value={editingRevenue?.[field] || 0}
+              onChange={(e) => handleRevenueChange(field, e.target.value)}
+              className="w-full bg-white/10 border border-white/20 rounded p-2 text-white mt-1"
+            />
+          ) : (
+            <p className="text-2xl font-bold text-white mt-1">{formatCurrency(amount)}</p>
+          )}
         </div>
       </div>
     </div>
@@ -226,6 +318,35 @@ function Profits() {
           </div>
         </div>
         
+        <div className="flex justify-end mb-4">
+          {!isEditing ? (
+            <button
+              onClick={startEditing}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              <Edit2 className="h-4 w-4" />
+              تعديل الأرقام
+            </button>
+          ) : (
+            <div className="flex gap-2">
+              <button
+                onClick={saveEdits}
+                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                <Save className="h-4 w-4" />
+                حفظ التعديلات
+              </button>
+              <button
+                onClick={cancelEditing}
+                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                <X className="h-4 w-4" />
+                إلغاء
+              </button>
+            </div>
+          )}
+        </div>
+
         {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-lg mb-6">{error}</div>}
         {loading ? (
           <div className="text-center py-12">
@@ -245,39 +366,45 @@ function Profits() {
               <RevenueCard 
                 title="إيرادات الساعات (شامل المحذوف)" 
                 icon={Users} 
-                amount={revenue[timeFilter].hourlyRevenue} 
-                color="bg-blue-600" 
+                amount={isEditing ? editingRevenue?.hourlyRevenue || 0 : revenue[timeFilter].hourlyRevenue} 
+                color="bg-blue-600"
+                field="hourlyRevenue"
               />
               <RevenueCard 
                 title="إيرادات الاشتراكات" 
                 icon={CreditCard} 
-                amount={revenue[timeFilter].subscriptionRevenue} 
-                color="bg-green-600" 
+                amount={isEditing ? editingRevenue?.subscriptionRevenue || 0 : revenue[timeFilter].subscriptionRevenue} 
+                color="bg-green-600"
+                field="subscriptionRevenue"
               />
               <RevenueCard 
                 title="إيرادات الحجوزات" 
                 icon={CalendarIcon} 
-                amount={revenue[timeFilter].reservationRevenue} 
-                color="bg-purple-600" 
+                amount={isEditing ? editingRevenue?.reservationRevenue || 0 : revenue[timeFilter].reservationRevenue} 
+                color="bg-purple-600"
+                field="reservationRevenue"
               />
               <RevenueCard 
                 title="إيرادات المنتجات (شامل المحذوف)" 
                 icon={Package} 
-                amount={revenue[timeFilter].productRevenue} 
-                color="bg-orange-600" 
+                amount={isEditing ? editingRevenue?.productRevenue || 0 : revenue[timeFilter].productRevenue} 
+                color="bg-orange-600"
+                field="productRevenue"
               />
               <RevenueCard 
                 title="صافي ربح المنتجات (شامل المحذوف)" 
                 icon={DollarSign} 
-                amount={revenue[timeFilter].productProfit} 
-                color="bg-lime-600" 
+                amount={isEditing ? editingRevenue?.productProfit || 0 : revenue[timeFilter].productProfit} 
+                color="bg-lime-600"
+                field="productProfit"
               />
               <div className="md:col-span-2 lg:col-span-3">
                 <RevenueCard 
                   title="إجمالي الإيرادات" 
                   icon={DollarSign} 
-                  amount={revenue[timeFilter].totalRevenue} 
-                  color="bg-emerald-600" 
+                  amount={isEditing ? editingRevenue?.totalRevenue || 0 : revenue[timeFilter].totalRevenue} 
+                  color="bg-emerald-600"
+                  field="totalRevenue"
                 />
               </div>
             </div>

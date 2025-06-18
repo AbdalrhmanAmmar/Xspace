@@ -61,7 +61,7 @@ function App() {
             <Route
               path="/subscriptions"
               element={
-                <ProtectedRoute adminOnly>
+                <ProtectedRoute >
                   <>
                     <Navbar />
                     <Subscriptions />
