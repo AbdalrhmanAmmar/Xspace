@@ -17,6 +17,7 @@ import AttendanceForm from "./pages/AttendanceForm";
 import { ProductPerformanceChart } from "./pages/ProductsPerformance";
 import { AbsentClients } from "./pages/AbsentClient";
 import MoneyArchive from "./pages/MoneyArchive";
+import ProductProfits from "./pages/ProductProfits";
 
 function App() {
   return (
@@ -164,6 +165,17 @@ function App() {
                   <>
                     <Navbar />
                     <MoneyArchive  />
+                  </>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/ProductProfits"
+              element={
+                <ProtectedRoute adminOnly>
+                  <>
+                    <Navbar />
+                    <ProductProfits  />
                   </>
                 </ProtectedRoute>
               }

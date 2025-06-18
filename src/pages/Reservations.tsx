@@ -148,8 +148,8 @@ export const Reservations = () => {
         if (error.code === "PGRST116") {
           await supabase.from("hall_prices").insert([
             {
-              large_hall_price: 90,
-              small_hall_price: 45,
+              large_hall_price: 100,
+              small_hall_price: 50,
             },
           ]);
         } else {
