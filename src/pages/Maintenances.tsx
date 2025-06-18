@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Wrench, Plus, X, Calendar as CalendarIcon, Filter } from "lucide-react";
+import { Wrench, Plus, X, Calendar as CalendarIcon, Filter, User, Trash2, ChevronDown, Search } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import DatePicker from "react-datepicker";
@@ -9,12 +9,18 @@ import ar from "date-fns/locale/ar";
 
 registerLocale('ar', ar);
 
+interface ExpensePerson {
+  id: string;
+  person_name: string;
+}
+
 interface Expense {
   id: string;
   description: string;
   amount: number;
   date: Date;
   category: "maintenance" | "daily_expenses" | "salaries";
+  people?: ExpensePerson[];
 }
 
 interface Revenue {
@@ -28,6 +34,7 @@ interface Revenue {
 
 const Expenses = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [filteredExpenses, setFilteredExpenses] = useState<Expense[]>([]);
   const [totalRevenue, setTotalRevenue] = useState<Revenue>({
     totalRevenue: 0,
     hourlyRevenue: 0,
@@ -46,8 +53,11 @@ const Expenses = () => {
     date: new Date().toISOString().split("T")[0],
     category: "maintenance" as "maintenance" | "daily_expenses" | "salaries",
   });
+  const [peopleNames, setPeopleNames] = useState<string[]>([""]);
+  const [savedNames, setSavedNames] = useState<string[]>([]);
   const [timeFilter, setTimeFilter] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily');
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
+  const [personSearchTerm, setPersonSearchTerm] = useState("");
 
   const formatGregorianDate = (date: Date) => {
     return date.toLocaleDateString('ar-EG', {
@@ -61,8 +71,56 @@ const Expenses = () => {
     if (user) {
       fetchExpenses();
       fetchTotalRevenue();
+      fetchSavedNames();
     }
   }, [user, timeFilter, selectedDate]);
+
+  useEffect(() => {
+    filterExpenses();
+  }, [expenses, personSearchTerm]);
+
+  const filterExpenses = () => {
+    if (!personSearchTerm.trim()) {
+      setFilteredExpenses(expenses);
+      return;
+    }
+
+    const searchTermLower = personSearchTerm.toLowerCase();
+    const filtered = expenses.filter(expense => {
+      // بحث في وصف المصروف
+      if (expense.description.toLowerCase().includes(searchTermLower)) {
+        return true;
+      }
+      
+      // بحث في أسماء الأشخاص
+      if (expense.people && expense.people.length > 0) {
+        return expense.people.some(person => 
+          person.person_name.toLowerCase().includes(searchTermLower)
+        );
+      }
+      
+      return false;
+    });
+    
+    setFilteredExpenses(filtered);
+  };
+
+  const fetchSavedNames = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("expense_people")
+        .select("person_name")
+        .order("person_name");
+
+      if (error) throw error;
+
+      // استخراج الأسماء الفريدة
+      const uniqueNames = [...new Set(data.map(item => item.person_name))];
+      setSavedNames(uniqueNames);
+    } catch (err) {
+      console.error("Error fetching saved names:", err);
+    }
+  };
 
   const fetchExpenses = async () => {
     try {
@@ -87,19 +145,27 @@ const Expenses = () => {
       
       const { data, error } = await supabase
         .from("expenses")
-        .select("*")
+        .select(`
+          *,
+          expense_people (
+            id,
+            person_name
+          )
+        `)
         .gte("date", startDate)
         .lte("date", endDate)
         .order("date", { ascending: false });
 
       if (error) throw error;
 
-      setExpenses(
-        data.map((record) => ({
-          ...record,
-          date: new Date(record.date),
-        }))
-      );
+      const formattedExpenses = data.map((record) => ({
+        ...record,
+        date: new Date(record.date),
+        people: record.expense_people || []
+      }));
+
+      setExpenses(formattedExpenses);
+      setFilteredExpenses(formattedExpenses);
 
       // Update profit archive
       const today = new Date().toISOString().split("T")[0];
@@ -298,24 +364,46 @@ const Expenses = () => {
       setLoading(true);
       setError(null);
 
-      const { error } = await supabase.from("expenses").insert([
-        {
-          description: formData.description,
-          amount: Number(formData.amount),
-          date: new Date(formData.date).toISOString(),
-          category: formData.category,
-        },
-      ]);
+      // إنشاء المصروف
+      const { data: expenseData, error: expenseError } = await supabase
+        .from("expenses")
+        .insert([
+          {
+            description: formData.description,
+            amount: Number(formData.amount),
+            date: new Date(formData.date).toISOString(),
+            category: formData.category,
+          },
+        ])
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (expenseError) throw expenseError;
+
+      // إضافة أسماء الأشخاص إذا كان المصروف يومي
+      if (formData.category === "daily_expenses" && peopleNames.some(name => name.trim())) {
+        const validNames = peopleNames.filter(name => name.trim());
+        const peopleData = validNames.map(name => ({
+          expense_id: expenseData.id,
+          person_name: name.trim()
+        }));
+
+        const { error: peopleError } = await supabase
+          .from("expense_people")
+          .insert(peopleData);
+
+        if (peopleError) throw peopleError;
+      }
 
       await fetchExpenses();
+      await fetchSavedNames(); // تحديث قائمة الأسماء المحفوظة
       setFormData({
         description: "",
         amount: "",
         date: new Date().toISOString().split("T")[0],
         category: "maintenance",
       });
+      setPeopleNames([""]);
       setShowAddForm(false);
     } catch (err: any) {
       console.error("Error saving expense record:", err);
@@ -325,8 +413,30 @@ const Expenses = () => {
     }
   };
 
+  const addPersonField = () => {
+    setPeopleNames([...peopleNames, ""]);
+  };
+
+  const removePersonField = (index: number) => {
+    if (peopleNames.length > 1) {
+      setPeopleNames(peopleNames.filter((_, i) => i !== index));
+    }
+  };
+
+  const updatePersonName = (index: number, name: string) => {
+    const updated = [...peopleNames];
+    updated[index] = name;
+    setPeopleNames(updated);
+  };
+
+  const selectSavedName = (index: number, selectedName: string) => {
+    const updated = [...peopleNames];
+    updated[index] = selectedName;
+    setPeopleNames(updated);
+  };
+
   const getCategoryTotal = (category: string) => {
-    return expenses
+    return filteredExpenses
       .filter((expense) => expense.category === category)
       .reduce((sum, record) => sum + record.amount, 0);
   };
@@ -334,7 +444,7 @@ const Expenses = () => {
   const totalMaintenance = getCategoryTotal("maintenance");
   const totalDailyExpenses = getCategoryTotal("daily_expenses");
   const totalSalaries = getCategoryTotal("salaries");
-  const totalExpenses = expenses.reduce((sum, record) => sum + record.amount, 0);
+  const totalExpenses = filteredExpenses.reduce((sum, record) => sum + record.amount, 0);
   const netProfit = totalRevenue.totalRevenue - totalExpenses;
 
   const formatCurrency = (amount: number) => {
@@ -452,6 +562,28 @@ const Expenses = () => {
           </div>
         )}
 
+        {/* بحث عن مصروف حسب اسم الشخص */}
+        <div className="mb-6">
+          <div className="relative">
+            <Search className="absolute right-3 top-2.5 h-5 w-5 text-slate-400" />
+            <input
+              type="text"
+              value={personSearchTerm}
+              onChange={(e) => setPersonSearchTerm(e.target.value)}
+              placeholder="ابحث عن مصروف أو اسم شخص..."
+              className="w-full pl-4 pr-10 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400"
+              dir="rtl"
+            />
+          </div>
+          {personSearchTerm && (
+            <div className="mt-2 text-sm text-slate-400">
+              {filteredExpenses.length === 0 
+                ? "لا توجد نتائج مطابقة للبحث" 
+                : `تم العثور على ${filteredExpenses.length} نتيجة`}
+            </div>
+          )}
+        </div>
+
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20">
@@ -529,13 +661,16 @@ const Expenses = () => {
         {/* Add Expense Form Modal */}
         {showAddForm && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-            <div className="bg-slate-800 rounded-xl p-6 w-full max-w-md border border-slate-700">
+            <div className="bg-slate-800 rounded-xl p-6 w-full max-w-md border border-slate-700 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-semibold text-white">
                   إضافة مصروف جديد
                 </h2>
                 <button
-                  onClick={() => setShowAddForm(false)}
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setPeopleNames([""]);
+                  }}
                   className="text-slate-400 hover:text-white transition-colors"
                 >
                   <X className="h-6 w-6" />
@@ -582,12 +717,16 @@ const Expenses = () => {
                   </label>
                   <select
                     value={formData.category}
-                    onChange={(e) =>
+                    onChange={(e) => {
                       setFormData({
                         ...formData,
                         category: e.target.value as any,
-                      })
-                    }
+                      });
+                      // إعادة تعيين أسماء الأشخاص عند تغيير التصنيف
+                      if (e.target.value !== "daily_expenses") {
+                        setPeopleNames([""]);
+                      }
+                    }}
                     className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   >
@@ -596,6 +735,86 @@ const Expenses = () => {
                     <option value="salaries">مرتبات</option>
                   </select>
                 </div>
+
+                {/* إضافة أسماء الأشخاص للمصروف اليومي */}
+                {formData.category === "daily_expenses" && (
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block text-sm font-medium text-slate-300">
+                        أسماء الأشخاص (اختياري)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={addPersonField}
+                        className="text-blue-400 hover:text-blue-300 flex items-center gap-1 text-sm"
+                      >
+                        <Plus className="h-4 w-4" />
+                        إضافة شخص
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {peopleNames.map((name, index) => (
+                        <div key={index} className="flex gap-2">
+                          <div className="relative flex-1">
+                            <input
+                              type="text"
+                              value={name}
+                              onChange={(e) => updatePersonName(index, e.target.value)}
+                              placeholder={`اسم الشخص ${index + 1}`}
+                              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 pr-8"
+                              dir="rtl"
+                            />
+                            {savedNames.length > 0 && (
+                              <div className="absolute left-2 top-1/2 transform -translate-y-1/2">
+                                <button
+                                  type="button"
+                                  className="text-slate-400 hover:text-white"
+                                  onClick={() => {
+                                    const dropdown = document.getElementById(`names-dropdown-${index}`);
+                                    if (dropdown) {
+                                      dropdown.classList.toggle('hidden');
+                                    }
+                                  }}
+                                >
+                                  <ChevronDown className="h-4 w-4" />
+                                </button>
+                                <div 
+                                  id={`names-dropdown-${index}`}
+                                  className="absolute left-0 mt-1 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-lg z-10 hidden"
+                                >
+                                  {savedNames.map((savedName, i) => (
+                                    <div
+                                      key={i}
+                                      className="px-3 py-2 hover:bg-slate-700 cursor-pointer text-white text-right"
+                                      onClick={() => {
+                                        selectSavedName(index, savedName);
+                                        const dropdown = document.getElementById(`names-dropdown-${index}`);
+                                        if (dropdown) {
+                                          dropdown.classList.add('hidden');
+                                        }
+                                      }}
+                                    >
+                                      {savedName}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          {peopleNames.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removePersonField(index)}
+                              className="text-red-400 hover:text-red-300 p-2"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">
@@ -626,36 +845,71 @@ const Expenses = () => {
 
         {/* Expenses Records */}
         <div className="space-y-4">
-          {expenses.map((expense) => (
-            <div
-              key={expense.id}
-              className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20"
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h3 className="text-xl font-semibold text-white">
-                      {expense.description}
-                    </h3>
-                    <span className={`text-sm px-2 py-1 rounded-full ${getCategoryColor(expense.category)} bg-opacity-20`}>
-                      {getCategoryName(expense.category)}
-                    </span>
+          {loading && filteredExpenses.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+              <p className="text-slate-400 mt-4">جاري تحميل المصروفات...</p>
+            </div>
+          ) : filteredExpenses.length === 0 ? (
+            <div className="text-center py-12 bg-slate-800/50 rounded-lg">
+              <p className="text-xl text-slate-400">
+                {personSearchTerm ? "لا توجد نتائج مطابقة للبحث" : "لا توجد سجلات مصروفات"}
+              </p>
+            </div>
+          ) : (
+            filteredExpenses.map((expense) => (
+              <div
+                key={expense.id}
+                className={`bg-white/10 backdrop-blur-lg p-6 rounded-xl border ${
+                  personSearchTerm && expense.people?.some(p => p.person_name.toLowerCase().includes(personSearchTerm.toLowerCase()))
+                    ? "border-yellow-500/50"
+                    : "border-white/20"
+                } transition-all`}
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-xl font-semibold text-white">
+                        {expense.description}
+                      </h3>
+                      <span className={`text-sm px-2 py-1 rounded-full ${getCategoryColor(expense.category)} bg-opacity-20`}>
+                        {getCategoryName(expense.category)}
+                      </span>
+                    </div>
+                    <p className="text-slate-400 mt-2">
+                      {formatGregorianDate(expense.date)}
+                    </p>
+                    
+                    {/* عرض أسماء الأشخاص إذا كان مصروف يومي */}
+                    {expense.category === "daily_expenses" && expense.people && expense.people.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-sm text-slate-300 mb-2 flex items-center gap-2">
+                          <User className="h-4 w-4" />
+                          الأشخاص:
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {expense.people.map((person) => (
+                            <span
+                              key={person.id}
+                              className={`px-2 py-1 rounded-full text-sm ${
+                                personSearchTerm && person.person_name.toLowerCase().includes(personSearchTerm.toLowerCase())
+                                  ? "bg-yellow-500/40 text-yellow-200 font-bold"
+                                  : "bg-yellow-500/20 text-yellow-300"
+                              }`}
+                            >
+                              {person.person_name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <p className="text-slate-400 mt-2">
-                    {formatGregorianDate(expense.date)}
+                  <p className="text-xl font-bold text-red-400">
+                    {formatCurrency(expense.amount)}
                   </p>
                 </div>
-                <p className="text-xl font-bold text-red-400">
-                  {formatCurrency(expense.amount)}
-                </p>
               </div>
-            </div>
-          ))}
-
-          {!loading && expenses.length === 0 && (
-            <div className="text-center py-12">
-              <p className="text-xl text-slate-400">لا توجد سجلات مصروفات</p>
-            </div>
+            ))
           )}
         </div>
       </div>
