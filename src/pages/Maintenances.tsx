@@ -18,12 +18,24 @@ interface Expense {
 }
 
 interface Revenue {
-  total: number;
+  totalRevenue: number;
+  hourlyRevenue: number;
+  subscriptionRevenue: number;
+  reservationRevenue: number;
+  productRevenue: number;
+  productProfit: number;
 }
 
 const Expenses = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [totalRevenue, setTotalRevenue] = useState<number>(0);
+  const [totalRevenue, setTotalRevenue] = useState<Revenue>({
+    totalRevenue: 0,
+    hourlyRevenue: 0,
+    subscriptionRevenue: 0,
+    reservationRevenue: 0,
+    productRevenue: 0,
+    productProfit: 0
+  });
   const [showAddForm, setShowAddForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +107,7 @@ const Expenses = () => {
       const dailyExpenses = getCategoryTotal("daily_expenses");
       const salaries = getCategoryTotal("salaries");
       const totalExp = maintenance + dailyExpenses + salaries;
-      const net = totalRevenue - totalExp;
+      const net = totalRevenue.totalRevenue - totalExp;
 
       const { error: archiveError } = await supabase.from("profit_archive").upsert([
         {
@@ -122,41 +134,153 @@ const Expenses = () => {
 
   const fetchTotalRevenue = async () => {
     try {
-      // Get total from visits
+      const date = selectedDate || new Date();
+      const dateString = date.toISOString().split('T')[0];
+      
+      console.log(`محاولة جلب الإيرادات للتاريخ: ${dateString}`);
+      
+      // محاولة جلب البيانات من profit_archive أولاً
+      const { data: archiveData, error: archiveError } = await supabase
+        .from("profit_archive")
+        .select("*")
+        .eq("date", dateString)
+        .single();
+
+      if (archiveData && !archiveError) {
+        console.log(`تم جلب الإيرادات من الأرشيف للتاريخ ${dateString}:`, archiveData);
+        setTotalRevenue({
+          totalRevenue: parseFloat(archiveData.total_revenue) || 0,
+          hourlyRevenue: parseFloat(archiveData.hourly_revenue) || 0,
+          subscriptionRevenue: parseFloat(archiveData.subscription_revenue) || 0,
+          reservationRevenue: parseFloat(archiveData.reservation_revenue) || 0,
+          productRevenue: parseFloat(archiveData.product_revenue) || 0,
+          productProfit: parseFloat(archiveData.product_profit) || 0,
+        });
+        return;
+      }
+
+      // إذا لم توجد في الأرشيف، احسبها من الجداول الأصلية
+      console.log(`لم توجد إيرادات في الأرشيف للتاريخ ${dateString}، سيتم الحساب من الجداول الأصلية`);
+      
+      const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+
+      // Get total from visits (including deleted)
       const { data: visitsData, error: visitsError } = await supabase
         .from("visits")
-        .select("total_amount");
+        .select("total_amount, created_at")
+        .gte("created_at", startOfDay.toISOString())
+        .lt("created_at", endOfDay.toISOString());
 
       if (visitsError) throw visitsError;
 
+      const { data: deletedVisitsData, error: deletedVisitsError } = await supabase
+        .from("deleted_visit")
+        .select("total_amount, start_time, time_amount")
+        .gte("start_time", startOfDay.toISOString())
+        .lt("start_time", endOfDay.toISOString());
+
+      if (deletedVisitsError) throw deletedVisitsError;
+
       // Get total from subscriptions
       const { data: subscriptionsData, error: subscriptionsError } =
-        await supabase.from("subscriptions").select("price");
+        await supabase
+          .from("subscriptions")
+          .select("price, created_at")
+          .gte("created_at", startOfDay.toISOString())
+          .lt("created_at", endOfDay.toISOString());
 
       if (subscriptionsError) throw subscriptionsError;
 
       // Get total from reservations
       const { data: reservationsData, error: reservationsError } =
-        await supabase.from("reservations").select("total_price");
+        await supabase
+          .from("reservations")
+          .select("total_price, created_at")
+          .gte("created_at", startOfDay.toISOString())
+          .lt("created_at", endOfDay.toISOString());
 
       if (reservationsError) throw reservationsError;
 
-      const totalFromVisits = (visitsData || []).reduce(
-        (sum, visit) => sum + (visit.total_amount || 0),
-        0
-      );
-      const totalFromSubscriptions = (subscriptionsData || []).reduce(
+      // Get product revenue and profit
+      const { data: visitProductsData } = await supabase
+        .from("visit_products")
+        .select("price, quantity, created_at")
+        .gte("created_at", startOfDay.toISOString())
+        .lt("created_at", endOfDay.toISOString());
+
+      const { data: deletedVisitProductsData } = await supabase
+        .from("deleted_visit_products")
+        .select("price, quantity, created_at")
+        .gte("created_at", startOfDay.toISOString())
+        .lt("created_at", endOfDay.toISOString());
+
+      const { data: productSalesData } = await supabase
+        .from("product_sales")
+        .select("price, buy_price, quantity, profit, created_at")
+        .gte("created_at", startOfDay.toISOString())
+        .lt("created_at", endOfDay.toISOString());
+
+      // Calculate revenues
+      const hourlyRevenue = [
+        ...(visitsData || []).map(v => parseFloat(v.total_amount) || 0),
+        ...(deletedVisitsData || []).map(v => parseFloat(v.total_amount) || parseFloat(v.time_amount) || 0)
+      ].reduce((sum, amount) => sum + amount, 0);
+
+      const subscriptionRevenue = (subscriptionsData || []).reduce(
         (sum, sub) => sum + (sub.price || 0),
         0
       );
-      const totalFromReservations = (reservationsData || []).reduce(
+
+      const reservationRevenue = (reservationsData || []).reduce(
         (sum, res) => sum + (res.total_price || 0),
         0
       );
 
-      setTotalRevenue(
-        totalFromVisits + totalFromSubscriptions + totalFromReservations
-      );
+      const productRevenue = [
+        ...(visitProductsData || []),
+        ...(deletedVisitProductsData || []),
+        ...(productSalesData || [])
+      ].reduce((sum, p) => sum + ((parseFloat(p.price) || 0) * (p.quantity || 1)), 0);
+
+      const productProfit = (productSalesData || []).reduce((sum, sale) => sum + (sale.profit || 0), 0);
+
+      const totalRev = hourlyRevenue + subscriptionRevenue + reservationRevenue + productRevenue;
+
+      setTotalRevenue({
+        totalRevenue: totalRev,
+        hourlyRevenue,
+        subscriptionRevenue,
+        reservationRevenue,
+        productRevenue,
+        productProfit
+      });
+
+      // حفظ البيانات في الأرشيف إذا لم تكن موجودة
+      try {
+        await supabase.from("profit_archive").upsert([
+          {
+            date: dateString,
+            hourly_revenue: hourlyRevenue,
+            subscription_revenue: subscriptionRevenue,
+            reservation_revenue: reservationRevenue,
+            product_revenue: productRevenue,
+            product_profit: productProfit,
+            total_revenue: totalRev,
+            maintenance: 0,
+            daily_expenses: 0,
+            salaries: 0,
+            total_expenses: 0,
+            net_profit: totalRev + productProfit,
+            notes: "تم الحفظ تلقائيًا من Maintenances component",
+            updated_at: new Date().toISOString()
+          }
+        ], { onConflict: ["date"] });
+        console.log(`تم حفظ الإيرادات في الأرشيف للتاريخ ${dateString}`);
+      } catch (archiveError) {
+        console.error("فشل حفظ الإيرادات في profit_archive:", archiveError);
+      }
+
     } catch (err) {
       console.error("Error fetching revenue:", err);
       setError("حدث خطأ أثناء حساب الإيرادات");
@@ -211,7 +335,7 @@ const Expenses = () => {
   const totalDailyExpenses = getCategoryTotal("daily_expenses");
   const totalSalaries = getCategoryTotal("salaries");
   const totalExpenses = expenses.reduce((sum, record) => sum + record.amount, 0);
-  const netProfit = totalRevenue - totalExpenses;
+  const netProfit = totalRevenue.totalRevenue - totalExpenses;
 
   const formatCurrency = (amount: number) => {
     return `${amount.toLocaleString("ar-EG")} جنيه`;
@@ -280,10 +404,7 @@ const Expenses = () => {
     <div className="min-h-screen bg-slate-900">
       <div className="max-w-7xl mx-auto p-6">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <Wrench className="h-8 w-8 text-blue-400" />
-            المصروفات
-          </h1>
+          <h1 className="text-3xl font-bold text-white">المصروفات</h1>
           
           <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
             <div className="flex gap-2 bg-white/10 backdrop-blur-lg p-1 rounded-lg border border-white/20">
@@ -335,11 +456,18 @@ const Expenses = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20">
             <h3 className="text-sm font-medium text-slate-400 mb-2">
-              إجمالي الإيرادات
+              إجمالي الإيرادات (من الأرشيف)
             </h3>
             <p className="text-2xl font-bold text-white">
-              {formatCurrency(totalRevenue)}
+              {formatCurrency(totalRevenue.totalRevenue)}
             </p>
+            <div className="mt-2 text-xs text-slate-500 space-y-1">
+              <div>الساعات: {formatCurrency(totalRevenue.hourlyRevenue)}</div>
+              <div>الاشتراكات: {formatCurrency(totalRevenue.subscriptionRevenue)}</div>
+              <div>الحجوزات: {formatCurrency(totalRevenue.reservationRevenue)}</div>
+              <div>المنتجات: {formatCurrency(totalRevenue.productRevenue)}</div>
+              <div>ربح المنتجات: {formatCurrency(totalRevenue.productProfit)}</div>
+            </div>
           </div>
           <div className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20">
             <h3 className="text-sm font-medium text-slate-400 mb-2">

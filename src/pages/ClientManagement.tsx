@@ -1301,7 +1301,7 @@ const filteredVisits = visits
                   )}
                 </div>
                 <h3 className="text-center">الرجاء اضافه عمليه بيع من الخارج</h3>
-                { <div className="bg-slate-700/50 p-4 rounded-lg">
+                {/* { <div className="bg-slate-700/50 p-4 rounded-lg">
                   <h3 className="text-sm font-medium text-slate-300 mb-3">
                     إضافة منتجات
                   </h3>
@@ -1380,7 +1380,7 @@ const filteredVisits = visits
                       إضافة
                     </button>
                   </div>
-                </div> }
+                </div> } */}
 
                 <div className="bg-slate-700/50 p-4 rounded-lg">
                   <h3 className="text-sm font-medium text-slate-300 mb-1">
