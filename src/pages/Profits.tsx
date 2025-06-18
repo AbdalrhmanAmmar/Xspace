@@ -33,13 +33,14 @@ function Profits() {
   const [editingRevenue, setEditingRevenue] = useState<Revenue | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('daily');
   const [customDate, setCustomDate] = useState<Date | null>(new Date());
   const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     fetchRevenue();
-  }, []);
+  }, [timeFilter, customDate]);
 
   const fetchRevenue = async (selectedDate?: Date) => {
     try {
@@ -51,28 +52,29 @@ function Profits() {
       const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-      const { data: visitsData } = await supabase.from("visits").select("total_amount, created_at");
-      const { data: deletedVisitsData } = await supabase.from("deleted_visit").select("total_amount, start_time, time_amount, product_amount");
+      // دالة لحساب البيانات من الجداول الأصلية
+      const calculateFromOriginalTables = async (startDate: Date, endDate?: Date): Promise<Revenue> => {
+        const { data: visitsData } = await supabase.from("visits").select("total_amount, created_at");
+        const { data: deletedVisitsData } = await supabase.from("deleted_visit").select("total_amount, start_time, time_amount, product_amount");
 
-      const allVisitsData = [
-        ...(visitsData || []).map(v => ({ amount: parseFloat(v.total_amount) || 0, created_at: v.created_at })),
-        ...(deletedVisitsData || []).map(v => ({ amount: parseFloat(v.total_amount) || parseFloat(v.time_amount) || 0, created_at: v.start_time }))
-      ];
+        const allVisitsData = [
+          ...(visitsData || []).map(v => ({ amount: parseFloat(v.total_amount) || 0, created_at: v.created_at })),
+          ...(deletedVisitsData || []).map(v => ({ amount: parseFloat(v.total_amount) || parseFloat(v.time_amount) || 0, created_at: v.start_time }))
+        ];
 
-      const { data: subscriptionsData } = await supabase.from("subscriptions").select("price, created_at");
-      const { data: reservationsData } = await supabase.from("reservations").select("total_price, created_at");
+        const { data: subscriptionsData } = await supabase.from("subscriptions").select("price, created_at");
+        const { data: reservationsData } = await supabase.from("reservations").select("total_price, created_at");
 
-      const { data: visitProductsData } = await supabase.from("visit_products").select("price, quantity, created_at");
-      const { data: deletedVisitProductsData } = await supabase.from("deleted_visit_products").select("price, quantity, created_at");
-      const { data: productSalesData } = await supabase.from("product_sales").select("price, buy_price, quantity, created_at");
+        const { data: visitProductsData } = await supabase.from("visit_products").select("price, quantity, created_at");
+        const { data: deletedVisitProductsData } = await supabase.from("deleted_visit_products").select("price, quantity, created_at");
+        const { data: productSalesData } = await supabase.from("product_sales").select("price, buy_price, quantity, created_at");
 
-      const allProductsData = [
-        ...(visitProductsData || []),
-        ...(deletedVisitProductsData || []),
-        ...(productSalesData || [])
-      ];
+        const allProductsData = [
+          ...(visitProductsData || []),
+          ...(deletedVisitProductsData || []),
+          ...(productSalesData || [])
+        ];
 
-      const calculatePeriodRevenue = (startDate: Date, endDate?: Date): Revenue => {
         const filterByDate = (date: string) => {
           const created = new Date(date);
           if (endDate) {
@@ -87,7 +89,6 @@ function Profits() {
         const productRevenue = allProductsData.filter(p => filterByDate(p.created_at)).reduce((sum, p) => sum + ((parseFloat(p.price) || 0) * (p.quantity || 1)), 0);
 
         let productProfit = 0;
-
         productProfit += (productSalesData || []).filter(p => filterByDate(p.created_at)).reduce((sum, p) => {
           const sellPrice = parseFloat(p.price) || 0;
           const buyPrice = p.buy_price !== undefined ? parseFloat(p.buy_price) : sellPrice * 0.7;
@@ -100,17 +101,80 @@ function Profits() {
         return { hourlyRevenue, subscriptionRevenue, reservationRevenue, productRevenue, totalRevenue, productProfit };
       };
 
-      const dailyData = calculatePeriodRevenue(startOfDay);
-      const weeklyData = calculatePeriodRevenue(startOfWeek);
-      const monthlyData = calculatePeriodRevenue(startOfMonth);
-      const customData = selectedDate 
-        ? calculatePeriodRevenue(
-            new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()),
-            timeFilter === 'monthly' 
-              ? new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0)
-              : undefined
-          )
-        : { hourlyRevenue: 0, subscriptionRevenue: 0, reservationRevenue: 0, productRevenue: 0, totalRevenue: 0, productProfit: 0 };
+      // دالة لجلب البيانات من profit_archive أو حسابها
+      const getRevenueData = async (date: Date, period: 'daily' | 'weekly' | 'monthly' | 'custom'): Promise<Revenue> => {
+        const dateString = date.toISOString().split('T')[0];
+        
+        // محاولة جلب البيانات من profit_archive أولاً
+        const { data: archiveData, error: archiveError } = await supabase
+          .from("profit_archive")
+          .select("*")
+          .eq("date", dateString)
+          .single();
+
+        if (archiveData && !archiveError) {
+          console.log(`تم جلب البيانات من الأرشيف للتاريخ ${dateString}:`, archiveData);
+          return {
+            hourlyRevenue: parseFloat(archiveData.hourly_revenue) || 0,
+            subscriptionRevenue: parseFloat(archiveData.subscription_revenue) || 0,
+            reservationRevenue: parseFloat(archiveData.reservation_revenue) || 0,
+            productRevenue: parseFloat(archiveData.product_revenue) || 0,
+            productProfit: parseFloat(archiveData.product_profit) || 0,
+            totalRevenue: parseFloat(archiveData.total_revenue) || 0,
+          };
+        }
+
+        // إذا لم توجد في الأرشيف، احسبها من الجداول الأصلية
+        console.log(`لم توجد بيانات في الأرشيف للتاريخ ${dateString}، سيتم الحساب من الجداول الأصلية`);
+        
+        let startDate: Date, endDate: Date;
+        
+        if (period === 'daily') {
+          startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+          endDate = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
+        } else if (period === 'weekly') {
+          startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate() - date.getDay());
+          endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+        } else if (period === 'monthly') {
+          startDate = new Date(date.getFullYear(), date.getMonth(), 1);
+          endDate = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+        } else {
+          startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+          endDate = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
+        }
+
+        return await calculateFromOriginalTables(startDate, endDate);
+      };
+
+      // جلب البيانات حسب الفلتر المحدد
+      let dailyData: Revenue, weeklyData: Revenue, monthlyData: Revenue, customData: Revenue;
+
+      if (timeFilter === 'daily') {
+        dailyData = await getRevenueData(now, 'daily');
+        weeklyData = await getRevenueData(now, 'weekly');
+        monthlyData = await getRevenueData(now, 'monthly');
+        customData = dailyData;
+      } else if (timeFilter === 'weekly') {
+        dailyData = await getRevenueData(now, 'daily');
+        weeklyData = await getRevenueData(now, 'weekly');
+        monthlyData = await getRevenueData(now, 'monthly');
+        customData = weeklyData;
+      } else if (timeFilter === 'monthly') {
+        dailyData = await getRevenueData(now, 'daily');
+        weeklyData = await getRevenueData(now, 'weekly');
+        monthlyData = await getRevenueData(now, 'monthly');
+        customData = monthlyData;
+      } else if (timeFilter === 'custom' && customDate) {
+        dailyData = await getRevenueData(now, 'daily');
+        weeklyData = await getRevenueData(now, 'weekly');
+        monthlyData = await getRevenueData(now, 'monthly');
+        customData = await getRevenueData(customDate, 'custom');
+      } else {
+        dailyData = await getRevenueData(now, 'daily');
+        weeklyData = await getRevenueData(now, 'weekly');
+        monthlyData = await getRevenueData(now, 'monthly');
+        customData = dailyData;
+      }
 
       setRevenue({
         daily: dailyData,
@@ -119,24 +183,38 @@ function Profits() {
         custom: customData
       });
 
+      // حفظ البيانات اليومية في profit_archive إذا لم تكن موجودة
       const today = new Date().toISOString().split("T")[0];
-      await supabase.from("profit_archive").upsert([
-        {
-          date: today,
-          hourly_revenue: dailyData.hourlyRevenue,
-          subscription_revenue: dailyData.subscriptionRevenue,
-          reservation_revenue: dailyData.reservationRevenue,
-          product_revenue: dailyData.productRevenue,
-          total_revenue: dailyData.totalRevenue,
-          net_profit: dailyData.productProfit,
-          maintenance: 0,
-          daily_expenses: 0,
-          salaries: 0,
-          total_expenses: 0,
-          notes: "تم الحفظ تلقائيًا من Profits component",
-          updated_at: new Date().toISOString()
+      const { data: existingArchive } = await supabase
+        .from("profit_archive")
+        .select("id")
+        .eq("date", today)
+        .single();
+
+      if (!existingArchive) {
+        try {
+          await supabase.from("profit_archive").upsert([
+            {
+              date: today,
+              hourly_revenue: dailyData.hourlyRevenue,
+              subscription_revenue: dailyData.subscriptionRevenue,
+              reservation_revenue: dailyData.reservationRevenue,
+              product_revenue: dailyData.productRevenue,
+              product_profit: dailyData.productProfit,
+              total_revenue: dailyData.totalRevenue,
+              maintenance: 0,
+              daily_expenses: 0,
+              salaries: 0,
+              total_expenses: 0,
+              net_profit: dailyData.totalRevenue + dailyData.productProfit,
+              notes: "تم الحفظ تلقائيًا من Profits component",
+              updated_at: new Date().toISOString()
+            }
+          ], { onConflict: ["date"] });
+        } catch (archiveError) {
+          console.error("فشل حفظ البيانات في profit_archive:", archiveError);
         }
-      ], { onConflict: ["date"] });
+      }
     } catch (err) {
       console.error("Error fetching revenue:", err);
       setError("حدث خطأ أثناء تحميل البيانات");
@@ -155,6 +233,7 @@ function Profits() {
   const handleFilterChange = (filter: TimeFilter) => {
     setTimeFilter(filter);
     setIsEditing(false);
+    setSuccessMessage(null);
     if (filter !== 'custom') {
       fetchRevenue();
     } else if (customDate) {
@@ -165,11 +244,15 @@ function Profits() {
   const startEditing = () => {
     setEditingRevenue({ ...revenue[timeFilter] });
     setIsEditing(true);
+    setSuccessMessage(null);
+    setError(null);
   };
 
   const cancelEditing = () => {
     setIsEditing(false);
     setEditingRevenue(null);
+    setSuccessMessage(null);
+    setError(null);
   };
 
   const saveEdits = async () => {
@@ -177,41 +260,78 @@ function Profits() {
 
     try {
       setLoading(true);
+      setError(null);
+      setSuccessMessage(null);
       
-      // Update local state
+      // تحديث البيانات المحلية
       const updatedRevenue = {
         ...revenue,
         [timeFilter]: editingRevenue
       };
       setRevenue(updatedRevenue);
       
-      // Save to database if it's daily data
+      // حفظ في قاعدة البيانات
+      let dateToSave: string;
+      
       if (timeFilter === 'daily') {
-        const today = new Date().toISOString().split("T")[0];
-        await supabase.from("profit_archive").upsert([
-          {
-            date: today,
-            hourly_revenue: editingRevenue.hourlyRevenue,
-            subscription_revenue: editingRevenue.subscriptionRevenue,
-            reservation_revenue: editingRevenue.reservationRevenue,
-            product_revenue: editingRevenue.productRevenue,
-            total_revenue: editingRevenue.totalRevenue,
-            net_profit: editingRevenue.productProfit,
-            maintenance: 0,
-            daily_expenses: 0,
-            salaries: 0,
-            total_expenses: 0,
-            notes: "تم التعديل يدويًا من Profits component",
-            updated_at: new Date().toISOString()
-          }
-        ], { onConflict: ["date"] });
+        dateToSave = new Date().toISOString().split("T")[0];
+      } else if (timeFilter === 'custom' && customDate) {
+        dateToSave = customDate.toISOString().split("T")[0];
+      } else {
+        dateToSave = new Date().toISOString().split("T")[0];
       }
 
+      console.log("محاولة حفظ البيانات للتاريخ:", dateToSave);
+      console.log("البيانات المراد حفظها:", editingRevenue);
+
+      const { error } = await supabase.from("profit_archive").upsert([
+        {
+          date: dateToSave,
+          hourly_revenue: editingRevenue.hourlyRevenue,
+          subscription_revenue: editingRevenue.subscriptionRevenue,
+          reservation_revenue: editingRevenue.reservationRevenue,
+          product_revenue: editingRevenue.productRevenue,
+          product_profit: editingRevenue.productProfit,
+          total_revenue: editingRevenue.totalRevenue,
+          maintenance: 0,
+          daily_expenses: 0,
+          salaries: 0,
+          total_expenses: 0,
+          net_profit: editingRevenue.totalRevenue + editingRevenue.productProfit,
+          notes: "تم التعديل يدويًا من Profits component",
+          updated_at: new Date().toISOString()
+        }
+      ], { onConflict: ["date"] });
+
+      if (error) {
+        throw error;
+      }
+
+      // التحقق من الحفظ بقراءة البيانات من قاعدة البيانات
+      const { data: savedData, error: readError } = await supabase
+        .from("profit_archive")
+        .select("*")
+        .eq("date", dateToSave)
+        .single();
+
+      if (readError) {
+        console.warn("تعذر التحقق من الحفظ:", readError);
+      } else {
+        console.log("تم التحقق من الحفظ بنجاح:", savedData);
+      }
+
+      setSuccessMessage(`تم حفظ البيانات بنجاح للتاريخ ${dateToSave}`);
       setIsEditing(false);
       setEditingRevenue(null);
-    } catch (err) {
+      
+      // إخفاء رسالة النجاح بعد 3 ثوان
+      setTimeout(() => {
+        setSuccessMessage(null);
+      }, 3000);
+
+    } catch (err: any) {
       console.error("Error saving edits:", err);
-      setError("حدث خطأ أثناء حفظ التعديلات");
+      setError("حدث خطأ أثناء حفظ التعديلات: " + (err.message || err));
     } finally {
       setLoading(false);
     }
@@ -221,13 +341,21 @@ function Profits() {
     if (!editingRevenue) return;
     
     const numValue = parseFloat(value) || 0;
-    setEditingRevenue({
+    const updatedRevenue = {
       ...editingRevenue,
-      [field]: numValue,
-      totalRevenue: field === 'totalRevenue' ? numValue : 
-        editingRevenue.hourlyRevenue + editingRevenue.subscriptionRevenue + 
-        editingRevenue.reservationRevenue + editingRevenue.productRevenue
-    });
+      [field]: numValue
+    };
+
+    // إعادة حساب الإجمالي إذا لم يكن الحقل هو الإجمالي نفسه
+    if (field !== 'totalRevenue') {
+      updatedRevenue.totalRevenue = 
+        updatedRevenue.hourlyRevenue + 
+        updatedRevenue.subscriptionRevenue + 
+        updatedRevenue.reservationRevenue + 
+        updatedRevenue.productRevenue;
+    }
+
+    setEditingRevenue(updatedRevenue);
   };
 
   const formatCurrency = (amount: number) => `${amount.toLocaleString("ar-EG")} جنيه`;
@@ -258,6 +386,8 @@ function Profits() {
               value={editingRevenue?.[field] || 0}
               onChange={(e) => handleRevenueChange(field, e.target.value)}
               className="w-full bg-white/10 border border-white/20 rounded p-2 text-white mt-1"
+              step="0.01"
+              min="0"
             />
           ) : (
             <p className="text-2xl font-bold text-white mt-1">{formatCurrency(amount)}</p>
@@ -331,14 +461,16 @@ function Profits() {
             <div className="flex gap-2">
               <button
                 onClick={saveEdits}
-                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors"
+                disabled={loading}
+                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
               >
                 <Save className="h-4 w-4" />
-                حفظ التعديلات
+                {loading ? "جاري الحفظ..." : "حفظ التعديلات"}
               </button>
               <button
                 onClick={cancelEditing}
-                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+                disabled={loading}
+                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
               >
                 <X className="h-4 w-4" />
                 إلغاء
@@ -347,7 +479,18 @@ function Profits() {
           )}
         </div>
 
-        {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-lg mb-6">{error}</div>}
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-lg mb-6">
+            {error}
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="bg-green-500/10 border border-green-500/20 text-green-400 p-4 rounded-lg mb-6">
+            {successMessage}
+          </div>
+        )}
+
         {loading ? (
           <div className="text-center py-12">
             <p className="text-xl text-slate-400">جاري تحميل البيانات...</p>
