@@ -27,8 +27,8 @@ export const Reservations = () => {
   const [formData, setFormData] = useState({
     clientName: "",
     date: "",
-    time: "",
-    durationRange: "60",
+    startTime: "",
+    endTime: "",
     hallName: HALLS.LARGE,
     deposit: "",
   });
@@ -53,6 +53,17 @@ export const Reservations = () => {
   useEffect(() => {
     filterReservations();
   }, [reservations, selectedDate]);
+
+  const formatTimeTo12Hour = (time24: string) => {
+    if (!time24) return "";
+    
+    const [hours, minutes] = time24.split(':');
+    const hoursNum = parseInt(hours);
+    const period = hoursNum >= 12 ? 'PM' : 'AM';
+    const hours12 = hoursNum % 12 || 12;
+    
+    return `${hours12}:${minutes} ${period}`;
+  };
 
   const getDaysInMonth = (date: Date): CalendarDay[] => {
     const year = date.getFullYear();
@@ -227,6 +238,12 @@ export const Reservations = () => {
     }
   };
 
+  const calculateDuration = (startTime: string, endTime: string) => {
+    const start = new Date(`2000-01-01T${startTime}`);
+    const end = new Date(`2000-01-01T${endTime}`);
+    return (end.getTime() - start.getTime()) / (1000 * 60);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
@@ -238,11 +255,14 @@ export const Reservations = () => {
       setLoading(true);
       setError(null);
 
-      const startDateTime = new Date(`${formData.date}T${formData.time}`);
-      const durationInMinutes = parseInt(formData.durationRange);
-      const endDateTime = new Date(
-        startDateTime.getTime() + durationInMinutes * 60000
-      );
+      const durationInMinutes = calculateDuration(formData.startTime, formData.endTime);
+      if (durationInMinutes <= 0) {
+        setError("وقت النهاية يجب أن يكون بعد وقت البداية");
+        return;
+      }
+
+      const startDateTime = new Date(`${formData.date}T${formData.startTime}`);
+      const endDateTime = new Date(`${formData.date}T${formData.endTime}`);
 
       const hasConflict = await checkTimeConflict(
         startDateTime.toISOString(),
@@ -305,8 +325,8 @@ export const Reservations = () => {
       setFormData({
         clientName: "",
         date: "",
-        time: "",
-        durationRange: "60",
+        startTime: "",
+        endTime: "",
         hallName: HALLS.LARGE,
         deposit: "",
       });
@@ -380,17 +400,12 @@ export const Reservations = () => {
 
   const calculateTotalPrice = (
     hallName: string,
-    durationInMinutes: number
+    startTime: string,
+    endTime: string
   ) => {
+    const durationInMinutes = calculateDuration(startTime, endTime);
     const hallPrice = hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall;
     return (hallPrice / 60) * durationInMinutes;
-  };
-
-  const getDurationColor = (minutes: number) => {
-    const percentage = (minutes / 480) * 100;
-    if (percentage <= 33) return "#22c55e";
-    if (percentage <= 66) return "#eab308";
-    return "#ef4444";
   };
 
   if (!user) {
@@ -529,54 +544,37 @@ export const Reservations = () => {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-blue-200 mb-2">
-                  الوقت
-                </label>
-                <input
-                  type="time"
-                  value={formData.time}
-                  onChange={(e) =>
-                    setFormData({ ...formData, time: e.target.value })
-                  }
-                  className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                  disabled={loading}
-                />
-              </div>
-            </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-blue-200 mb-2">
+                    وقت البداية
+                  </label>
+                  <input
+                    type="time"
+                    value={formData.startTime}
+                    onChange={(e) =>
+                      setFormData({ ...formData, startTime: e.target.value })
+                    }
+                    className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                    disabled={loading}
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-blue-200 mb-2">
-                المدة: {formatDurationDisplay(parseInt(formData.durationRange))}
-              </label>
-              <div className="relative">
-                <input
-                  type="range"
-                  value={formData.durationRange}
-                  onChange={(e) =>
-                    setFormData({ ...formData, durationRange: e.target.value })
-                  }
-                  className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
-                  min="15"
-                  max="480"
-                  step="15"
-                  disabled={loading}
-                  style={{
-                    background: `linear-gradient(to left, ${getDurationColor(
-                      parseInt(formData.durationRange)
-                    )} 0%, ${getDurationColor(
-                      parseInt(formData.durationRange)
-                    )} ${
-                      (parseInt(formData.durationRange) / 480) * 100
-                    }%, #334155 ${
-                      (parseInt(formData.durationRange) / 480) * 100
-                    }%, #334155 100%)`,
-                  }}
-                />
-                <div className="absolute -bottom-6 left-0 right-0 flex justify-between text-sm text-blue-200">
-                  <span>15 دقيقة</span>
-                  <span>8 ساعات</span>
+                <div>
+                  <label className="block text-sm font-medium text-blue-200 mb-2">
+                    وقت النهاية
+                  </label>
+                  <input
+                    type="time"
+                    value={formData.endTime}
+                    onChange={(e) =>
+                      setFormData({ ...formData, endTime: e.target.value })
+                    }
+                    className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                    disabled={loading}
+                  />
                 </div>
               </div>
             </div>
@@ -652,13 +650,26 @@ export const Reservations = () => {
                   formData.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall
                 )}
               </p>
+              <p className="text-blue-200">
+                المدة:{" "}
+                {formData.startTime && formData.endTime ? (
+                  formatDurationDisplay(calculateDuration(formData.startTime, formData.endTime))
+                ) : (
+                  "0 ساعة"
+                )}
+              </p>
               <p className="text-white font-bold mt-2">
                 التكلفة الإجمالية:{" "}
-                {formatCurrency(
-                  calculateTotalPrice(
-                    formData.hallName,
-                    parseInt(formData.durationRange)
+                {formData.startTime && formData.endTime ? (
+                  formatCurrency(
+                    calculateTotalPrice(
+                      formData.hallName,
+                      formData.startTime,
+                      formData.endTime
+                    )
                   )
+                ) : (
+                  "0 جنيه"
                 )}
               </p>
             </div>
@@ -752,7 +763,7 @@ export const Reservations = () => {
                         </h3>
                         <div className="mt-2 space-y-1">
                           <p className="text-blue-200">
-                            الوقت: {reservation.time}
+                            الوقت: {formatTimeTo12Hour(reservation.time)}
                           </p>
                           <p className="text-blue-200">
                             المدة: {formatDurationDisplay(
