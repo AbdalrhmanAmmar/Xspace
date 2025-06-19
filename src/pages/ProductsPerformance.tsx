@@ -1,303 +1,461 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  PointElement,
-  LineElement,
-} from "chart.js";
-import { Bar, Line } from "react-chartjs-2";
-import { DateRangePicker } from "../components/DateRangePicker";
+import { useAuth } from "../contexts/AuthContext";
+import { DateRangePicker } from "react-date-range";
+import "react-date-range/dist/styles.css";
+import "react-date-range/dist/theme/default.css";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
-// Register ChartJS components once at module scope
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  PointElement,
-  LineElement
-);
-
-interface SalesPoint {
-  date: string;
-  quantity: number;
-}
-
-interface ProductPerformance {
+type ProductPerformance = {
   id: string;
   name: string;
-  totalSold: number;
-  totalRevenue: number;
-  salesOverTime: SalesPoint[];
-}
+  totalSales: number;
+  totalQuantity: number;
+  totalProfit: number;
+  buyPrice: number | null;
+  price: number;
+  category?: {
+    name: string;
+  } | null;
+};
 
-/**
- * Helper to format numbers using the Arabic‑Egypt locale
- */
-const formatNumber = (n?: number) => (n ?? 0).toLocaleString("ar-EG");
-
-export const ProductPerformanceChart: React.FC = () => {
-  const [topProducts, setTopProducts] = useState<ProductPerformance[]>([]);
-  const [worstProducts, setWorstProducts] = useState<ProductPerformance[]>([]);
-  const [selectedProduct, setSelectedProduct] = useState<ProductPerformance | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
+export const ProductPerformance = () => {
+  const { user } = useAuth();
+  const [products, setProducts] = useState<ProductPerformance[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>(() => ({
-    start: new Date(new Date().setMonth(new Date().getMonth() - 1)),
-    end: new Date(),
-  }));
+  const [dateRange, setDateRange] = useState([
+    {
+      startDate: new Date(new Date().setMonth(new Date().getMonth() - 1)),
+      endDate: new Date(),
+      key: "selection",
+    },
+  ]);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "chart">("list");
+  const [sortConfig, setSortConfig] = useState<{
+    key: keyof ProductPerformance;
+    direction: "ascending" | "descending";
+  }>({ key: "totalProfit", direction: "descending" });
 
-  /**
-   * Fetch aggregated performance for all products between the chosen dates.
-   * Uses the PostgreSQL function `product_performance(start_date, end_date)`
-   * that must exist on the backend.
-   */
+  useEffect(() => {
+    if (user) {
+      fetchProductPerformance();
+    }
+  }, [user, dateRange]);
+
   const fetchProductPerformance = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const { data, error } = await supabase.rpc("product_performance", {
-        start_date: dateRange.start.toISOString(),
-        end_date: dateRange.end.toISOString(),
+      const startDate = dateRange[0].startDate.toISOString().split("T")[0];
+      const endDate = dateRange[0].endDate.toISOString().split("T")[0];
+
+      const { data: salesData, error: salesError } = await supabase
+        .from("product_sales")
+        .select("product_id, price, buy_price, quantity, profit, created_at")
+        .gte("created_at", startDate)
+        .lte("created_at", endDate);
+
+      if (salesError) throw salesError;
+
+      const { data: productsData, error: productsError } = await supabase
+        .from("products")
+        .select("id, name, buyPrice, price, category:category_id(name)");
+
+      if (productsError) throw productsError;
+
+      // Aggregate sales data by product
+      const performanceMap = new Map<string, ProductPerformance>();
+
+      // Initialize all products
+      productsData?.forEach((product) => {
+        performanceMap.set(product.id, {
+          id: product.id,
+          name: product.name,
+          totalSales: 0,
+          totalQuantity: 0,
+          totalProfit: 0,
+          buyPrice: product.buyPrice,
+          price: product.price,
+          category: product.category,
+        });
       });
 
-      if (error) throw error;
+      // Process sales data
+      salesData?.forEach((sale) => {
+        const product = performanceMap.get(sale.product_id);
+        if (product) {
+          product.totalSales += sale.price * sale.quantity;
+          product.totalQuantity += sale.quantity;
+          product.totalProfit += sale.profit;
+        }
+      });
 
-      // Ensure we always deal with an array
-      const products: ProductPerformance[] = (data ?? []).map((row: any) => ({
-        id: row.id,
-        name: row.name,
-        totalSold: Number(row.total_sold ?? 0),
-        totalRevenue: Number(row.total_revenue ?? 0),
-        salesOverTime: row.sales_over_time ?? [],
-      }));
-
-      // Sort by total sold descending
-      const sorted = [...products].sort((a, b) => b.totalSold - a.totalSold);
-
-      // Cap to 5 items (or fewer if dataset smaller)
-      const cap = Math.min(5, sorted.length);
-      setTopProducts(sorted.slice(0, cap));
-      setWorstProducts(sorted.slice(-cap).reverse());
-
-      // Auto‑select first product if nothing selected
-      if (!selectedProduct && sorted.length > 0) {
-        setSelectedProduct(sorted[0]);
-      }
+      setProducts(Array.from(performanceMap.values()));
     } catch (err: any) {
-      console.error("Error fetching product performance", err);
-      setError(err.message ?? "خطأ غير متوقع، حاول مرة أخرى");
+      console.error("Error fetching product performance:", err);
+      setError(err.message || "Error loading product performance data");
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch whenever the dateRange changes
-  useEffect(() => {
-    fetchProductPerformance();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateRange]);
-
-  /* ========================
-   *   Chart.js Datasets
-   * ======================*/
-
-  const barChartData = React.useMemo(() => {
-    if (topProducts.length === 0 && worstProducts.length === 0) return undefined;
-
-    const labels = [...topProducts, ...worstProducts].map((p) => p.name);
-
-    return {
-      labels,
-      datasets: [
-        {
-          label: "الكمية المباعة",
-          data: [...topProducts, ...worstProducts].map((p) => p.totalSold),
-          backgroundColor: "rgba(54, 162, 235, 0.5)",
-          borderColor: "rgba(54, 162, 235, 1)",
-          borderWidth: 1,
-        },
-        {
-          label: "الإيرادات (ج.م)",
-          data: [...topProducts, ...worstProducts].map((p) => p.totalRevenue),
-          backgroundColor: "rgba(75, 192, 192, 0.5)",
-          borderColor: "rgba(75, 192, 192, 1)",
-          borderWidth: 1,
-        },
-      ],
-    };
-  }, [topProducts, worstProducts]);
-
-  const lineChartData = React.useMemo(() => {
-    if (!selectedProduct) return undefined;
-
-    return {
-      labels: selectedProduct.salesOverTime.map((s) => s.date),
-      datasets: [
-        {
-          label: `الكمية المباعة – ${selectedProduct.name}`,
-          data: selectedProduct.salesOverTime.map((s) => s.quantity),
-          borderColor: "rgb(255, 99, 132)",
-          backgroundColor: "rgba(255, 99, 132, 0.5)",
-          tension: 0.1,
-        },
-      ],
-    };
-  }, [selectedProduct]);
-
-  /* ========================
-   *   Chart.js Options
-   * ======================*/
-  const commonFont = { family: "Tajawal, sans-serif" } as const;
-
-  const barChartOptions = {
-    responsive: true,
-    plugins: {
-      legend: { position: "top" as const },
-      title: {
-        display: true,
-        text: "أفضل وأسوأ المنتجات حسب الكمية المباعة",
-        font: { size: 16, ...commonFont },
-      },
-    },
-    scales: {
-      x: { ticks: { font: commonFont } },
-      y: { ticks: { font: commonFont } },
-    },
+  const handleSort = (key: keyof ProductPerformance) => {
+    let direction: "ascending" | "descending" = "ascending";
+    if (sortConfig.key === key && sortConfig.direction === "ascending") {
+      direction = "descending";
+    }
+    setSortConfig({ key, direction });
   };
 
-  const lineChartOptions = {
-    responsive: true,
-    plugins: {
-      legend: { position: "top" as const },
-      title: {
-        display: true,
-        text: `أداء ${selectedProduct?.name ?? "المنتج"} عبر الزمن`,
-        font: { size: 16, ...commonFont },
-      },
-    },
-    scales: {
-      x: { ticks: { font: commonFont } },
-      y: { ticks: { font: commonFont } },
-    },
+  const sortedProducts = [...products].sort((a, b) => {
+    if (a[sortConfig.key] < b[sortConfig.key]) {
+      return sortConfig.direction === "ascending" ? -1 : 1;
+    }
+    if (a[sortConfig.key] > b[sortConfig.key]) {
+      return sortConfig.direction === "ascending" ? 1 : -1;
+    }
+    return 0;
+  });
+
+  const formatCurrency = (amount: number) => {
+    return `${amount.toLocaleString()} EGP`;
   };
 
-  /* ========================
-   *        RENDER
-   * ======================*/
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString("en-GB");
+  };
+
+  const chartData = sortedProducts
+    .filter((p) => p.totalSales > 0)
+    .slice(0, 10)
+    .map((product) => ({
+      name: product.name,
+      sales: product.totalSales,
+      profit: product.totalProfit,
+    }));
 
   return (
-    <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
-        <h2 className="text-xl font-semibold text-white">أداء المنتجات</h2>
-        <DateRangePicker
-          startDate={dateRange.start}
-          endDate={dateRange.end}
-          onChange={(start, end) => setDateRange({ start, end })}
-        />
-      </div>
+    <div className="min-h-screen bg-slate-900 p-6">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-3xl font-bold text-white mb-6">أداء المنتجات</h1>
 
-      {/* Error */}
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-lg mb-6">
-          {error}
-        </div>
-      )}
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-lg mb-6">
+            {error}
+          </div>
+        )}
 
-      {/* Loading */}
-      {loading ? (
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        {/* Filters */}
+        <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="relative">
+              <button
+                onClick={() => setShowDatePicker(!showDatePicker)}
+                className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
+              >
+                <span>
+                  {formatDate(dateRange[0].startDate)} - {formatDate(dateRange[0].endDate)}
+                </span>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+
+              {showDatePicker && (
+                <div className="absolute z-10 mt-2 bg-slate-800 border border-slate-700 rounded-lg shadow-lg">
+                  <DateRangePicker
+                    ranges={dateRange}
+                    onChange={(item: any) => {
+                      setDateRange([item.selection]);
+                      setShowDatePicker(false);
+                    }}
+                    months={2}
+                    direction="horizontal"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setViewMode("list")}
+                className={`px-4 py-2 rounded-lg ${
+                  viewMode === "list"
+                    ? "bg-blue-600 text-white"
+                    : "bg-slate-700 text-slate-300"
+                }`}
+              >
+                عرض جدولي
+              </button>
+              <button
+                onClick={() => setViewMode("chart")}
+                className={`px-4 py-2 rounded-lg ${
+                  viewMode === "chart"
+                    ? "bg-blue-600 text-white"
+                    : "bg-slate-700 text-slate-300"
+                }`}
+              >
+                عرض بياني
+              </button>
+            </div>
+          </div>
         </div>
-      ) : (
-        <>
-          {/* ───────────────────────── Top / Worst Lists ───────────────────────── */}
-          {topProducts.length === 0 ? (
-            <p className="text-gray-400 text-center py-8">
-              لا توجد مبيعات في النطاق الزمني المختار.
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-              {/* Best */}
-              <div className="bg-slate-800/50 p-4 rounded-lg">
-                <h3 className="text-lg font-medium text-white mb-4">أفضل المنتجات</h3>
-                <div className="space-y-3">
-                  {topProducts.map((p) => (
-                    <div
-                      key={p.id}
-                      className={`p-3 rounded-lg cursor-pointer transition-all ${
-            /* Highlight selected */
-                        selectedProduct?.id === p.id
-                          ? "bg-blue-500/20 border border-blue-500/30"
-                          : "bg-slate-700/50 hover:bg-slate-700/70"
+
+        {/* Content */}
+        {loading ? (
+          <div className="flex justify-center items-center h-64">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+          </div>
+        ) : viewMode === "chart" ? (
+          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 mb-6">
+            <h2 className="text-xl font-semibold text-white mb-4">
+              أفضل 10 منتجات حسب المبيعات
+            </h2>
+            <div className="h-96">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={chartData}
+                  margin={{
+                    top: 20,
+                    right: 30,
+                    left: 20,
+                    bottom: 60,
+                  }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#4b5563" />
+                  <XAxis
+                    dataKey="name"
+                    angle={-45}
+                    textAnchor="end"
+                    height={70}
+                    tick={{ fill: "#e2e8f0" }}
+                  />
+                  <YAxis tick={{ fill: "#e2e8f0" }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#1e293b",
+                      borderColor: "#334155",
+                      borderRadius: "0.5rem",
+                    }}
+                    formatter={(value: number) => [
+                      formatCurrency(value),
+                      value === value ? "المبيعات" : "الربح",
+                    ]}
+                  />
+                  <Legend />
+                  <Bar
+                    dataKey="sales"
+                    name="إجمالي المبيعات"
+                    fill="#3b82f6"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="profit"
+                    name="صافي الربح"
+                    fill="#10b981"
+                    radius={[4, 4, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-700">
+                <thead className="bg-slate-800/50">
+                  <tr>
+                    <th
+                      scope="col"
+                      className="px-6 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider cursor-pointer"
+                      onClick={() => handleSort("name")}
+                    >
+                      <div className="flex items-center justify-end">
+                        المنتج
+                        {sortConfig.key === "name" && (
+                          <span className="ml-1">
+                            {sortConfig.direction === "ascending" ? "↑" : "↓"}
+                          </span>
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-6 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider cursor-pointer"
+                      onClick={() => handleSort("category")}
+                    >
+                      <div className="flex items-center justify-end">
+                        الفئة
+                        {sortConfig.key === "category" && (
+                          <span className="ml-1">
+                            {sortConfig.direction === "ascending" ? "↑" : "↓"}
+                          </span>
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-6 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider cursor-pointer"
+                      onClick={() => handleSort("totalQuantity")}
+                    >
+                      <div className="flex items-center justify-end">
+                        الكمية المباعة
+                        {sortConfig.key === "totalQuantity" && (
+                          <span className="ml-1">
+                            {sortConfig.direction === "ascending" ? "↑" : "↓"}
+                          </span>
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-6 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider cursor-pointer"
+                      onClick={() => handleSort("totalSales")}
+                    >
+                      <div className="flex items-center justify-end">
+                        إجمالي المبيعات
+                        {sortConfig.key === "totalSales" && (
+                          <span className="ml-1">
+                            {sortConfig.direction === "ascending" ? "↑" : "↓"}
+                          </span>
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-6 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider cursor-pointer"
+                      onClick={() => handleSort("totalProfit")}
+                    >
+                      <div className="flex items-center justify-end">
+                        صافي الربح
+                        {sortConfig.key === "totalProfit" && (
+                          <span className="ml-1">
+                            {sortConfig.direction === "ascending" ? "↑" : "↓"}
+                          </span>
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-6 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider"
+                    >
+                      هامش الربح
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700">
+                  {sortedProducts.map((product) => (
+                    <tr key={product.id} className="hover:bg-slate-800/50">
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <div className="text-white">{product.name}</div>
+                        <div className="text-slate-400 text-sm">
+                          {formatCurrency(product.price)} للوحدة
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-slate-300">
+                        {product.category?.name || "-"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-slate-300">
+                        {product.totalQuantity}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-white">
+                        {formatCurrency(product.totalSales)}
+                      </td>
+                      <td
+                        className={`px-6 py-4 whitespace-nowrap text-right ${
+                          product.totalProfit >= 0
+                            ? "text-green-400"
+                            : "text-red-400"
+                        }`}
+                      >
+                        {formatCurrency(product.totalProfit)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-slate-300">
+                        {product.totalSales > 0
+                          ? `${Math.round(
+                              (product.totalProfit / product.totalSales) * 100
+                            )}%`
+                          : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-slate-800/50">
+                  <tr>
+                    <td
+                      colSpan={2}
+                      className="px-6 py-4 whitespace-nowrap text-right font-bold text-white"
+                    >
+                      الإجمالي
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right font-bold text-white">
+                      {sortedProducts.reduce(
+                        (sum, product) => sum + product.totalQuantity,
+                        0
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right font-bold text-white">
+                      {formatCurrency(
+                        sortedProducts.reduce(
+                          (sum, product) => sum + product.totalSales,
+                          0
+                        )
+                      )}
+                    </td>
+                    <td
+                      className={`px-6 py-4 whitespace-nowrap text-right font-bold ${
+                        sortedProducts.reduce(
+                          (sum, product) => sum + product.totalProfit,
+                          0
+                        ) >= 0
+                          ? "text-green-400"
+                          : "text-red-400"
                       }`}
-                      onClick={() => setSelectedProduct(p)}
                     >
-                      <div className="flex justify-between items-center">
-                        <span className="text-white font-medium">{p.name}</span>
-                        <div className="flex gap-4">
-                          <span className="text-green-400">{p.totalSold} وحدة</span>
-                          <span className="text-blue-300">{formatNumber(p.totalRevenue)} ج.م</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Worst */}
-              <div className="bg-slate-800/50 p-4 rounded-lg">
-                <h3 className="text-lg font-medium text-white mb-4">أسوأ المنتجات</h3>
-                <div className="space-y-3">
-                  {worstProducts.map((p) => (
-                    <div
-                      key={p.id}
-                      className={`p-3 rounded-lg cursor-pointer transition-all ${
-            selectedProduct?.id === p.id
-              ? "bg-blue-500/20 border border-blue-500/30"
-              : "bg-slate-700/50 hover:bg-slate-700/70"
-          }`}
-                      onClick={() => setSelectedProduct(p)}
-                    >
-                      <div className="flex justify-between items-center">
-                        <span className="text-white font-medium">{p.name}</span>
-                        <div className="flex gap-4">
-                          <span className="text-red-400">{p.totalSold} وحدة</span>
-                          <span className="text-blue-300">{formatNumber(p.totalRevenue)} ج.م</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                      {formatCurrency(
+                        sortedProducts.reduce(
+                          (sum, product) => sum + product.totalProfit,
+                          0
+                        )
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right font-bold text-white">
+                      {sortedProducts.reduce(
+                        (sum, product) => sum + product.totalSales,
+                        0
+                      ) > 0
+                        ? `${Math.round(
+                            (sortedProducts.reduce(
+                              (sum, product) => sum + product.totalProfit,
+                              0
+                            ) /
+                              sortedProducts.reduce(
+                                (sum, product) => sum + product.totalSales,
+                                0
+                              )) *
+                              100
+                          )}%`
+                        : "-"}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
-          )}
-
-          {/* ───────────────────────── Bar Chart ───────────────────────── */}
-          {barChartData && (
-            <div className="bg-slate-800/50 p-4 rounded-lg mb-6">
-              <Bar options={barChartOptions} data={barChartData} />
-            </div>
-          )}
-
-          {/* ───────────────────────── Line Chart ───────────────────────── */}
-          {selectedProduct && lineChartData && (
-            <div className="bg-slate-800/50 p-4 rounded-lg">
-              <Line options={lineChartOptions} data={lineChartData} />
-            </div>
-          )}
-        </>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

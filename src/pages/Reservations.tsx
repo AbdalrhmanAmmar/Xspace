@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Trash2, X, Settings, Check, Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import { Trash2, X, Settings, Check, Calendar, ChevronLeft, ChevronRight, Play, Square } from "lucide-react";
 import { DbReservation, HALLS } from "../types/client";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
@@ -16,9 +16,14 @@ interface CalendarDay {
   hasReservations: boolean;
 }
 
+interface ReservationWithProfit extends DbReservation {
+  depositPaid: boolean;
+  remainingPaid: boolean;
+}
+
 export const Reservations = () => {
-  const [reservations, setReservations] = useState<DbReservation[]>([]);
-  const [filteredReservations, setFilteredReservations] = useState<DbReservation[]>([]);
+  const [reservations, setReservations] = useState<ReservationWithProfit[]>([]);
+  const [filteredReservations, setFilteredReservations] = useState<ReservationWithProfit[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -187,31 +192,38 @@ export const Reservations = () => {
       setLoading(true);
       const { data, error } = await supabase
         .from("reservations")
-        .select(
-          `
+        .select(`
           *,
-          clients (
-            name
-          )
-        `
-        )
+          clients (name),
+          reservation_profits (type, amount)
+        `)
         .order("start_time", { ascending: false });
 
       if (error) throw error;
 
-      const formattedReservations = (data || []).map((res) => ({
-        id: res.id,
-        clientName: res.clients?.name || "",
-        date: new Date(res.start_time).toISOString().split("T")[0],
-        time: new Date(res.start_time).toTimeString().split(" ")[0].slice(0, 5),
-        duration: {
-          hours: Math.floor(res.duration_minutes / 60),
-          minutes: res.duration_minutes % 60,
-        },
-        hallName: res.hall_name,
-        deposit: res.deposit_amount,
-        totalPrice: res.total_price,
-      }));
+      const formattedReservations = (data || []).map((res) => {
+        const profits = res.reservation_profits || [];
+        const depositPaid = profits.some((p: any) => p.type === 'deposit');
+        const remainingPaid = profits.some((p: any) => p.type === 'remaining');
+
+        return {
+          id: res.id,
+          clientName: res.clients?.name || "",
+          date: new Date(res.start_time).toISOString().split("T")[0],
+          time: new Date(res.start_time).toTimeString().split(" ")[0].slice(0, 5),
+          duration: {
+            hours: Math.floor(res.duration_minutes / 60),
+            minutes: res.duration_minutes % 60,
+          },
+          hallName: res.hall_name,
+          deposit: res.deposit_amount,
+          totalPrice: res.total_price,
+          status: res.status || 'pending',
+          startedAt: res.started_at,
+          depositPaid,
+          remainingPaid,
+        };
+      });
 
       setReservations(formattedReservations);
     } catch (err) {
@@ -228,6 +240,7 @@ export const Reservations = () => {
         .from("reservations")
         .select("*")
         .eq("hall_name", hallName)
+        .neq("status", "cancelled")
         .or(`and(start_time.lte.${endTime},end_time.gte.${startTime})`);
 
       if (error) throw error;
@@ -242,6 +255,25 @@ export const Reservations = () => {
     const start = new Date(`2000-01-01T${startTime}`);
     const end = new Date(`2000-01-01T${endTime}`);
     return (end.getTime() - start.getTime()) / (1000 * 60);
+  };
+
+  const addToTodayProfits = async (amount: number, type: 'deposit' | 'remaining', reservationId: string) => {
+    try {
+      // إضافة الربح إلى جدول أرباح الحجوزات
+      const { error } = await supabase
+        .from("reservation_profits")
+        .insert([{
+          reservation_id: reservationId,
+          amount: amount,
+          type: type,
+          date: new Date().toISOString().split('T')[0]
+        }]);
+
+      if (error) throw error;
+    } catch (err) {
+      console.error("Error adding to profits:", err);
+      throw err;
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -304,7 +336,7 @@ export const Reservations = () => {
       const hallPrice = formData.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall;
       const totalPrice = (hallPrice / 60) * durationInMinutes;
 
-      const { error: reservationError } = await supabase
+      const { data: reservationData, error: reservationError } = await supabase
         .from("reservations")
         .insert([
           {
@@ -315,11 +347,18 @@ export const Reservations = () => {
             duration_minutes: durationInMinutes,
             total_price: totalPrice,
             deposit_amount: Number(formData.deposit) || 0,
-            status: "active",
+            status: "pending",
           },
-        ]);
+        ])
+        .select()
+        .single();
 
       if (reservationError) throw reservationError;
+
+      // إضافة العربون إلى أرباح اليوم
+      if (Number(formData.deposit) > 0) {
+        await addToTodayProfits(Number(formData.deposit), 'deposit', reservationData.id);
+      }
 
       await fetchReservations();
       setFormData({
@@ -334,6 +373,63 @@ export const Reservations = () => {
     } catch (err: any) {
       console.error("Error saving reservation:", err);
       setError(err.message || "حدث خطأ أثناء حفظ الحجز");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStartReservation = async (reservation: ReservationWithProfit) => {
+    if (!confirm("هل أنت متأكد من بدء هذا الحجز؟")) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      // تحديث حالة الحجز إلى "started"
+      const { error: updateError } = await supabase
+        .from("reservations")
+        .update({
+          status: "started",
+          started_at: new Date().toISOString()
+        })
+        .eq("id", reservation.id);
+
+      if (updateError) throw updateError;
+
+      // إضافة المبلغ المتبقي إلى أرباح اليوم
+      const remainingAmount = reservation.totalPrice - reservation.deposit;
+      if (remainingAmount > 0) {
+        await addToTodayProfits(remainingAmount, 'remaining', reservation.id);
+      }
+
+      await fetchReservations();
+    } catch (err: any) {
+      console.error("Error starting reservation:", err);
+      setError(err.message || "حدث خطأ أثناء بدء الحجز");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelReservation = async (reservation: ReservationWithProfit) => {
+    if (!confirm("هل أنت متأكد من إلغاء هذا الحجز؟")) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      // تحديث حالة الحجز إلى "cancelled"
+      const { error: updateError } = await supabase
+        .from("reservations")
+        .update({ status: "cancelled" })
+        .eq("id", reservation.id);
+
+      if (updateError) throw updateError;
+
+      await fetchReservations();
+    } catch (err: any) {
+      console.error("Error cancelling reservation:", err);
+      setError(err.message || "حدث خطأ أثناء إلغاء الحجز");
     } finally {
       setLoading(false);
     }
@@ -406,6 +502,36 @@ export const Reservations = () => {
     const durationInMinutes = calculateDuration(startTime, endTime);
     const hallPrice = hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall;
     return (hallPrice / 60) * durationInMinutes;
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'bg-yellow-500/20 text-yellow-400';
+      case 'started':
+        return 'bg-blue-500/20 text-blue-400';
+      case 'completed':
+        return 'bg-green-500/20 text-green-400';
+      case 'cancelled':
+        return 'bg-red-500/20 text-red-400';
+      default:
+        return 'bg-gray-500/20 text-gray-400';
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'في الانتظار';
+      case 'started':
+        return 'بدأ';
+      case 'completed':
+        return 'مكتمل';
+      case 'cancelled':
+        return 'ملغي';
+      default:
+        return status;
+    }
   };
 
   if (!user) {
@@ -757,10 +883,15 @@ export const Reservations = () => {
                     className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20"
                   >
                     <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="text-xl font-semibold text-white">
-                          {reservation.clientName}
-                        </h3>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="text-xl font-semibold text-white">
+                            {reservation.clientName}
+                          </h3>
+                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(reservation.status)}`}>
+                            {getStatusText(reservation.status)}
+                          </span>
+                        </div>
                         <div className="mt-2 space-y-1">
                           <p className="text-blue-200">
                             الوقت: {formatTimeTo12Hour(reservation.time)}
@@ -779,22 +910,43 @@ export const Reservations = () => {
                           </p>
                           <p className="text-emerald-400">
                             العربون: {formatCurrency(reservation.deposit)}
+                            {reservation.depositPaid && <span className="text-green-400 mr-2">✓ تم إضافته للأرباح</span>}
                           </p>
                           <p className="text-blue-400">
-                            المتبقي:{" "}
-                            {formatCurrency(
-                              reservation.totalPrice - reservation.deposit
-                            )}
+                            المتبقي: {formatCurrency(reservation.totalPrice - reservation.deposit)}
+                            {reservation.remainingPaid && <span className="text-green-400 mr-2">✓ تم إضافته للأرباح</span>}
                           </p>
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleDelete(reservation.id)}
-                        className="text-red-400 hover:text-red-300 transition-colors"
-                        disabled={loading}
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
+                      <div className="flex flex-col gap-2 ml-4">
+                        {reservation.status === 'pending' && (
+                          <>
+                            <button
+                              onClick={() => handleStartReservation(reservation)}
+                              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                              disabled={loading}
+                            >
+                              <Play className="h-4 w-4" />
+                              بدء الحجز
+                            </button>
+                            <button
+                              onClick={() => handleCancelReservation(reservation)}
+                              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+                              disabled={loading}
+                            >
+                              <Square className="h-4 w-4" />
+                              إلغاء الحجز
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => handleDelete(reservation.id)}
+                          className="text-red-400 hover:text-red-300 transition-colors p-2"
+                          disabled={loading}
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))
