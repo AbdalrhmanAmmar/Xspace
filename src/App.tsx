@@ -14,9 +14,9 @@ import Profits from "./pages/Profits";
 import Maintenances from "./pages/Maintenances";
 import DeletedVisitsList from "./pages/DeletedVisitsList";
 import AttendanceForm from "./pages/AttendanceForm";
-import { ProductPerformanceChart } from "./pages/ProductsPerformance";
 import { AbsentClients } from "./pages/AbsentClient";
 import MoneyArchive from "./pages/MoneyArchive";
+import { ProductPerformance } from "./pages/ProductsPerformance";
 import ProductProfits from "./pages/ProductProfits";
 
 function App() {
@@ -136,17 +136,7 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route
-              path="/ProductsPerformance"
-              element={
-                <ProtectedRoute adminOnly>
-                  <>
-                    <Navbar />
-                    <ProductPerformanceChart />
-                  </>
-                </ProtectedRoute>
-              }
-            />
+
             <Route
               path="/AbsentClient"
               element={
@@ -170,6 +160,17 @@ function App() {
               }
             />
             <Route
+              path="/ProductsPerformance"
+              element={
+                <ProtectedRoute adminOnly>
+                  <>
+                    <Navbar />
+                    <ProductPerformance  />
+                  </>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/ProductProfits"
               element={
                 <ProtectedRoute adminOnly>
@@ -180,6 +181,7 @@ function App() {
                 </ProtectedRoute>
               }
             />
+
           </Routes>
         </Router>
       </ProductProvider>

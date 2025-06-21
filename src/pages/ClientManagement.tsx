@@ -1300,7 +1300,13 @@ const filteredVisits = visits
                     </div>
                   )}
                 </div>
-                <h3 className="text-center">الرجاء اضافه عمليه بيع من الخارج</h3>
+                           <button
+                onClick={() => setIsSaleModalOpen(true)}
+                className="bg-purple-500/20 text-purple-400 gap-4 px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+              >
+                <ShoppingCart className="h-4 w-4" />
+                اضافه بيع
+              </button>
           
 
                 <div className="bg-slate-700/50 p-4 rounded-lg">
