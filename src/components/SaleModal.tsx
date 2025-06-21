@@ -9,9 +9,10 @@ interface SaleModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSaleComplete: () => void;
+  Setproduct: (total: number) => void;
 }
 
-export const SaleModal = ({ isOpen, onClose, onSaleComplete }: SaleModalProps) => {
+export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleModalProps) => {
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [linkedProducts, setLinkedProducts] = useState<any[]>([]);
@@ -27,6 +28,7 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete }: SaleModalProps) =
     if (isOpen) {
       fetchProducts();
       fetchLinkedProducts();
+      Setproduct(0);
     } else {
       setSearchTerm("");
       setCart([]);
@@ -147,9 +149,11 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete }: SaleModalProps) =
     try {
       setLoading(true);
       setError(null);
+    
 
       const total = calculateTotal();
       const profit = calculateProfit();
+          Setproduct(total); 
       setSaleTotal(total);
       setSaleProfit(profit);
 
@@ -238,6 +242,7 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete }: SaleModalProps) =
     setCart([]);
     onSaleComplete();
     onClose();
+    Setproduct(0);
   };
 
   const filteredProducts = products.filter(product =>
@@ -446,7 +451,6 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete }: SaleModalProps) =
                   "تأكيد البيع"
                 )}
               </button>
-                <button className="bg-indigo-700  rounded-md px-4 gap-2 justify-center">اضف عميل</button>
             </div>
           </div>
         </div>

@@ -80,6 +80,7 @@ const [visitType, setVisitType] = useState<"default" | "small" | "big">("default
   const [editedStartTime, setEditedStartTime] = useState("");
   const [editedEndTime, setEditedEndTime] = useState("");
   const [isCalculated, setIsCalculated] = useState(false);
+  const [product, Setproduct]=useState<number>(0)
 
   const HOUR_RATE = 10;
   const HOUR_RATE_FIRST = 10;
@@ -109,6 +110,11 @@ const [visitType, setVisitType] = useState<"default" | "small" | "big">("default
       fetchVisits();
     }
   }, [user]);
+
+const handlevisit=(visit)=>{
+  setSelectedVisit(visit)
+  Setproduct(0)
+}
 
   const calculateVisitStats = () => {
     let ongoing = 0;
@@ -153,6 +159,7 @@ const [visitType, setVisitType] = useState<"default" | "small" | "big">("default
       setSelectedVisit({
         ...selectedVisit,
         startTime: new Date(editedStartTime),
+      
         endTime: editedEndTime ? new Date(editedEndTime) : undefined,
       });
 
@@ -177,7 +184,7 @@ const [visitType, setVisitType] = useState<"default" | "small" | "big">("default
       setLoading(false);
     }
   };
-
+console.log(product)
   useEffect(() => {
     setFilteredProducts(
       products.filter((product) =>
@@ -364,6 +371,7 @@ const handleSubmit = async (e: React.FormEvent, type: "default" | "small" | "big
     setLoading(true);
     setError(null);
     const currentDate = new Date();
+   
 
     // Create or update client
     let clientId: string;
@@ -646,7 +654,7 @@ const endVisit = async (visitId: string) => {
         end_time: currentTime,
         total_amount: totalAmount,
         time_amount: timeAmount,
-        product_amount: productAmount,
+        product_amount: {product},
         number_of_people: visit?.numberOfPeople || 1,
       })
       .eq("id", visitId);
@@ -801,61 +809,70 @@ const endVisit = async (visitId: string) => {
   };
 
 const deleteAllVisits = async () => {
+  if (!user) {
+    setError("يجب تسجيل الدخول أولاً");
+    return false;
+  }
+
   try {
     setIsDeleting(true);
+    setError(null);
 
-    // 1. أولاً احصل على جميع الزيارات الحالية
+    // 1. جلب جميع الزيارات الحالية مع تاريخ الزيارة الأصلي
     const { data: allVisits, error: visitsError } = await supabase
       .from("visits")
       .select("*");
-    
     if (visitsError) throw visitsError;
 
-    // 2. احصل على جميع منتجات الزيارات
+    // 2. جلب جميع منتجات الزيارات
     const { data: allVisitProducts, error: productsError } = await supabase
       .from("visit_products")
       .select("*");
-    
     if (productsError) throw productsError;
 
-    // 3. انقل الزيارات إلى جدول المحذوفات
-    if (allVisits && allVisits.length > 0) {
-      const { error: moveError } = await supabase
+    // 3. نقل الزيارات إلى الأرشيف مع الاحتفاظ بالتاريخ الأصلي
+    if (allVisits?.length > 0) {
+      const { error: archiveError } = await supabase
         .from("deleted_visit")
-        .insert(allVisits.map(v => ({
-          ...v,
-          deleted_at: new Date().toISOString()
-        })));
-      
-      if (moveError) throw moveError;
+        .insert(
+          allVisits.map(visit => ({
+            ...visit,
+            id: crypto.randomUUID(), // توليد معرف جديد
+            original_visit_date: visit.visit_date, // حفظ تاريخ الزيارة الأصلي
+            deleted_at: new Date().toISOString() // تاريخ الحذف
+          }))
+        );
+      if (archiveError) throw archiveError;
     }
 
-    // 4. انقل منتجات الزيارات إلى جدول المحذوفات
-    if (allVisitProducts && allVisitProducts.length > 0) {
-      const { error: moveProductsError } = await supabase
-        .from("deleted_visit_products")
-        .insert(allVisitProducts);
-      
-      if (moveProductsError) throw moveProductsError;
-    }
+    // 4. حذف جميع السجلات المرتبطة
+    await supabase.from("visit_products").delete().not("id", "is", null);
+    await supabase.from("visit_pauses").delete().not("id", "is", null);
 
-    // 5. الآن احذف الزيارات الأصلية
+    // 5. حذف جميع الزيارات الأصلية
     const { error: deleteError } = await supabase
       .from("visits")
       .delete()
-      .neq("id", 0); // حذف جميع الزيارات
-    
+      .not("id", "is", null);
     if (deleteError) throw deleteError;
 
+    // 6. تحديث الواجهة
     setVisits([]);
+    setSelectedVisit(null);
     setShowDeleteAllModal(false);
-    alert("✅ تم الحذف بنجاح");
-  } catch (err: any) {
-    alert("❌ حدث خطأ: " + err.message);
+
+    alert("تم أرشفة جميع الزيارات بنجاح مع الاحتفاظ بتاريخ الزيارة الأصلي");
+    return true;
+  } catch (err) {
+    console.error("فشل في أرشفة الزيارات:", err);
+    setError(err?.message || "حدث خطأ أثناء أرشفة الزيارات");
+    return false;
   } finally {
     setIsDeleting(false);
   }
 };
+
+
 
 
 
@@ -1114,7 +1131,7 @@ const filteredVisits = visits
                 <div
                   key={visit.id}
                   className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 cursor-pointer hover:bg-slate-800/70 transition-colors flex justify-between"
-                  onClick={() => setSelectedVisit(visit)}
+                  onClick={() => handlevisit(visit)}
                 >
                   <div className="flex justify-between items-center w-full">
                     <div>
@@ -1383,12 +1400,13 @@ const filteredVisits = visits
                     <div className="flex justify-between text-white">
                       <span>المنتجات:</span>
                       <span>
-                        {formatCurrency(
+                        {/* {formatCurrency(
                           selectedVisit.products.reduce(
                             (sum, p) => sum + p.price * p.quantity,
                             0
                           )
-                        )}
+                        )} */}
+                        {product}
                       </span>
                     </div>
                     <div className="flex justify-between text-white">
@@ -1413,7 +1431,7 @@ const filteredVisits = visits
                     <div className="flex justify-between text-white font-bold pt-2 border-t border-slate-600">
                       <span>الإجمالي:</span>
                       <span>
-                        {formatCurrency(calculateTotalAmount(selectedVisit))}
+                       {formatCurrency(calculateTotalAmount(selectedVisit) + product)}
                       </span>
                     </div>
                   </div>
@@ -1468,6 +1486,7 @@ const filteredVisits = visits
         )}
       </div>
       <SaleModal
+      Setproduct={Setproduct}
         isOpen={isSaleModalOpen}
         onClose={() => setIsSaleModalOpen(false)}
         products={products}
