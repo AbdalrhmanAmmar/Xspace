@@ -12,7 +12,7 @@ interface SaleModalProps {
   Setproduct: (total: number) => void;
 }
 
-export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleModalProps) => {
+export const SaleModal = ({ isOpen, onClose, onSaleComplete, Setproduct }: SaleModalProps) => {
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [linkedProducts, setLinkedProducts] = useState<any[]>([]);
@@ -23,6 +23,7 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleMo
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [saleTotal, setSaleTotal] = useState(0);
   const [saleProfit, setSaleProfit] = useState(0);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -34,17 +35,24 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleMo
       setCart([]);
       setError(null);
       setShowSuccessModal(false);
+      setDebugInfo(null);
     }
   }, [isOpen]);
 
   const fetchProducts = async () => {
     try {
+      setLoading(true);
       const { data, error } = await supabase.from("products").select("*");
       if (error) throw error;
       setProducts(data || []);
     } catch (err) {
-      console.error("Error fetching products:", err);
+      console.error("Error fetching products:", {
+        error: err,
+        timestamp: new Date().toISOString()
+      });
       setError("حدث خطأ أثناء تحميل المنتجات");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -56,14 +64,21 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleMo
       if (error) throw error;
       setLinkedProducts(data || []);
     } catch (err) {
-      console.error("Error fetching linked products:", err);
+      console.error("Error fetching linked products:", {
+        error: err,
+        timestamp: new Date().toISOString()
+      });
       setError("حدث خطأ أثناء تحميل المنتجات المرتبطة");
     }
   };
 
   const addToCart = (productId: string) => {
+    setError(null);
     const product = products.find(p => p.id === productId);
-    if (!product) return;
+    if (!product) {
+      setError("المنتج غير موجود");
+      return;
+    }
 
     if (product.quantity <= 0) {
       setError("هذا المنتج غير متوفر حالياً");
@@ -90,6 +105,7 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleMo
   };
 
   const removeFromCart = (productId: string) => {
+    setError(null);
     setCart(currentCart => {
       const existingItem = currentCart.find(item => item.id === productId);
       if (!existingItem) return currentCart;
@@ -120,11 +136,9 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleMo
       const mainProduct = products.find(p => p.id === item.id);
       if (!mainProduct) return;
       
-      // حساب ربح المنتج الرئيسي
       const mainProductProfit = (mainProduct.price - (mainProduct.buyPrice || 0)) * item.quantity;
       totalProfit += mainProductProfit;
       
-      // حساب ربح المنتجات المرتبطة
       linkedProducts
         .filter(lp => lp.main_product_id === mainProduct.id)
         .forEach(link => {
@@ -140,103 +154,169 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleMo
     return totalProfit;
   };
 
-  const handleSubmit = async () => {
-    if (cart.length === 0) {
-      setError("يجب إضافة منتجات للسلة أولاً");
-      return;
-    }
+const handleSubmit = async () => {
+  if (cart.length === 0) {
+    setError("يجب إضافة منتجات للسلة أولاً");
+    return;
+  }
 
-    try {
-      setLoading(true);
-      setError(null);
+  try {
+    setLoading(true);
+    setError(null);
     
-
-      const total = calculateTotal();
-      const profit = calculateProfit();
-          Setproduct(total); 
-      setSaleTotal(total);
-      setSaleProfit(profit);
-
-      // 1. التحقق من الكمية وتحديثها لكل المنتجات (الرئيسية والمرتبطة)
-      for (const item of cart) {
-        const mainProduct = products.find(p => p.id === item.id);
-        if (!mainProduct) continue;
-
-        // التحقق من المنتج الرئيسي
-        const { data: mainResult, error: mainError } = await supabase
-          .rpc("check_and_update_product_quantities", {
-            product_id: item.id,
-            quantity_needed: item.quantity,
-          });
-
-        if (mainError) throw mainError;
-        if (!mainResult.success) throw new Error(mainResult.error_message);
-
-        // التحقق من المنتجات المرتبطة
-        const linkedItems = linkedProducts.filter(lp => lp.main_product_id === item.id);
-        for (const link of linkedItems) {
-          const { data: linkedResult, error: linkedError } = await supabase
-            .rpc("check_and_update_product_quantities", {
-              product_id: link.linked_product_id,
-              quantity_needed: link.quantity * item.quantity,
-            });
-
-          if (linkedError) throw linkedError;
-          if (!linkedResult.success) throw new Error(linkedResult.error_message);
-        }
-      }
-
-      // 2. تسجيل المبيعات في جدول product_sales
-      const salesData = [];
-      
-      for (const item of cart) {
-        const mainProduct = products.find(p => p.id === item.id);
-        if (!mainProduct) continue;
-
-        // تسجيل المنتج الرئيسي
-        salesData.push({
-          product_id: item.id,
-          price: mainProduct.price,
-          buy_price: mainProduct.buyPrice || 0,
-          quantity: item.quantity,
-          profit: (mainProduct.price - (mainProduct.buyPrice || 0)) * item.quantity,
-          created_at: new Date().toISOString(),
-          visit_id: null, // ← مفيش زيارة
-        });
-
-        // تسجيل المنتجات المرتبطة
-        const linkedItems = linkedProducts.filter(lp => lp.main_product_id === item.id);
-        for (const link of linkedItems) {
-          const linkedProduct = products.find(p => p.id === link.linked_product_id);
-          if (!linkedProduct) continue;
-
-          const linkedQuantity = link.quantity * item.quantity;
-          salesData.push({
-            product_id: link.linked_product_id,
-            price: linkedProduct.price,
-            buy_price: linkedProduct.buyPrice || 0,
-            quantity: linkedQuantity,
-            profit: (linkedProduct.price - (linkedProduct.buyPrice || 0)) * linkedQuantity,
-            created_at: new Date().toISOString()
-          });
-        }
-      }
-
-      // إدراج جميع سجلات المبيعات دفعة واحدة
-      const { error: salesError } = await supabase
-        .from("product_sales")
-        .insert(salesData);
-
-      if (salesError) throw salesError;
-
-      setShowSuccessModal(true);
-    } catch (err: any) {
-      console.error("Error processing sale:", err);
-      setError(err.message || "حدث خطأ أثناء معالجة عملية البيع");
-    } finally {
-      setLoading(false);
+    // 1. التحقق من توفر المنتجات والكميات
+    const availabilityCheck = await checkProductsAvailability();
+    if (!availabilityCheck.available) {
+      throw new Error(availabilityCheck.message);
     }
-  };
+
+    // 2. تحديث الكميات في قاعدة البيانات
+    await updateProductsQuantities();
+
+    // 3. تسجيل عملية البيع
+    const saleResult = await recordSale();
+    
+    if (saleResult.error) {
+      throw saleResult.error;
+    }
+
+    setShowSuccessModal(true);
+  } catch (err: any) {
+    handleSaleError(err);
+  } finally {
+    setLoading(false);
+  }
+};
+
+// الدوال المساعدة الجديدة
+const checkProductsAvailability = async () => {
+  const results = [];
+  
+  for (const item of cart) {
+    const product = products.find(p => p.id === item.id);
+    if (!product) {
+      return {
+        available: false,
+        message: `المنتج غير موجود (ID: ${item.id})`
+      };
+    }
+
+    if (product.quantity < item.quantity) {
+      return {
+        available: false,
+        message: `الكمية غير كافية لـ ${product.name} (المطلوب: ${item.quantity}، المتاح: ${product.quantity})`
+      };
+    }
+
+    // التحقق من المنتجات المرتبطة
+    const linkedItems = linkedProducts.filter(lp => lp.main_product_id === item.id);
+    for (const link of linkedItems) {
+      const linkedProduct = products.find(p => p.id === link.linked_product_id);
+      if (!linkedProduct) continue;
+
+      const neededQuantity = link.quantity * item.quantity;
+      if (linkedProduct.quantity < neededQuantity) {
+        return {
+          available: false,
+          message: `الكمية غير كافية للمنتج المرتبط ${linkedProduct.name} (المطلوب: ${neededQuantity}، المتاح: ${linkedProduct.quantity})`
+        };
+      }
+    }
+  }
+
+  return { available: true };
+};
+
+const updateProductsQuantities = async () => {
+  const updates = [];
+  
+  for (const item of cart) {
+    const product = products.find(p => p.id === item.id);
+    if (!product) continue;
+
+    // تحديث المنتج الرئيسي
+    updates.push(
+      supabase
+        .from('products')
+        .update({ quantity: product.quantity - item.quantity })
+        .eq('id', item.id)
+    );
+
+    // تحديث المنتجات المرتبطة
+    const linkedItems = linkedProducts.filter(lp => lp.main_product_id === item.id);
+    for (const link of linkedItems) {
+      const linkedProduct = products.find(p => p.id === link.linked_product_id);
+      if (!linkedProduct) continue;
+
+      updates.push(
+        supabase
+          .from('products')
+          .update({ quantity: linkedProduct.quantity - (link.quantity * item.quantity) })
+          .eq('id', link.linked_product_id)
+      );
+    }
+  }
+
+  const results = await Promise.all(updates);
+  results.forEach(result => {
+    if (result.error) throw result.error;
+  });
+};
+
+const recordSale = async () => {
+  const salesData = [];
+  
+  for (const item of cart) {
+    const product = products.find(p => p.id === item.id);
+    if (!product) continue;
+
+    salesData.push({
+      product_id: item.id,
+      price: product.price,
+      buy_price: product.buyPrice || 0,
+      quantity: item.quantity,
+      profit: (product.price - (product.buyPrice || 0)) * item.quantity,
+      created_at: new Date().toISOString()
+    });
+
+    // إضافة المنتجات المرتبطة
+    const linkedItems = linkedProducts.filter(lp => lp.main_product_id === item.id);
+    for (const link of linkedItems) {
+      const linkedProduct = products.find(p => p.id === link.linked_product_id);
+      if (!linkedProduct) continue;
+
+      const linkedQuantity = link.quantity * item.quantity;
+      salesData.push({
+        product_id: link.linked_product_id,
+        price: linkedProduct.price,
+        buy_price: linkedProduct.buyPrice || 0,
+        quantity: linkedQuantity,
+        profit: (linkedProduct.price - (linkedProduct.buyPrice || 0)) * linkedQuantity,
+        created_at: new Date().toISOString()
+      });
+    }
+  }
+
+  return await supabase.from('product_sales').insert(salesData);
+};
+
+const handleSaleError = (err: any) => {
+  console.error("Sale processing failed:", {
+    error: err,
+    cartItems: cart.map(item => ({
+      id: item.id,
+      product: products.find(p => p.id === item.id)?.name,
+      quantity: item.quantity
+    })),
+    time: new Date().toISOString()
+  });
+
+  setError(`
+    فشل إتمام عملية البيع:
+    ${err.message || 'سبب غير معروف'}
+    الرجاء مراجعة السجلات لمزيد من التفاصيل
+  `);
+};
 
   const closeSuccessModal = () => {
     setShowSuccessModal(false);
@@ -270,11 +350,27 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleMo
             </button>
           </div>
 
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-lg mb-6">
-              {error}
-            </div>
-          )}
+{error && (
+  <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-lg mb-6">
+    <div className="font-bold">خطأ في عملية البيع:</div>
+    <div>{error}</div>
+    <button
+      onClick={() => {
+        console.group("Sale Error Debugging");
+        console.log("Cart Contents:", cart);
+        console.log("Products State:", products);
+        console.log("Error Details:", {
+          message: error,
+          time: new Date().toISOString()
+        });
+        console.groupEnd();
+      }}
+      className="mt-2 text-xs bg-red-500/20 hover:bg-red-500/30 px-2 py-1 rounded"
+    >
+      عرض تفاصيل الخطأ (للمطور)
+    </button>
+  </div>
+)}
 
           <div className="space-y-6">
             {/* Search Products */}
@@ -293,7 +389,9 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleMo
               {filteredProducts.map((product) => (
                 <div
                   key={product.id}
-                  className="bg-slate-700/50 p-3 rounded-lg border border-slate-600"
+                  className={`bg-slate-700/50 p-3 rounded-lg border ${
+                    product.quantity > 0 ? "border-slate-600" : "border-red-500/50"
+                  }`}
                 >
                   <div className="flex justify-between items-start">
                     <div>
@@ -306,7 +404,9 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleMo
                       <p className="text-sm text-slate-400">
                         {product.price.toLocaleString("ar-EG")} جنيه
                       </p>
-                      <p className="text-xs text-slate-500">
+                      <p className={`text-xs ${
+                        product.quantity > 0 ? "text-slate-500" : "text-red-400"
+                      }`}>
                         المتوفر: {product.quantity}
                       </p>
                     </div>
@@ -394,7 +494,6 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleMo
                           <span>{(product.price * item.quantity).toLocaleString("ar-EG")} جنيه</span>
                         </div>
                         
-                        {/* عرض المنتجات المرتبطة في الملخص */}
                         {linkedProducts
                           .filter(lp => lp.main_product_id === product.id)
                           .map(link => {
@@ -476,7 +575,6 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleMo
               >
                 تم
               </button>
-            
             </div>
           </div>
         </div>
