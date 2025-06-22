@@ -692,6 +692,12 @@ const addProductToVisit = async () => {
 
     if (error) throw error;
 
+    // ✅ تقليل كمية المنتج من المخزون
+    await supabase.rpc("decrement_product_quantity", {
+      product_id: product.id,
+      decrement_by: newProductQuantity
+    });
+
     // تحديث الحالة المحلية
     setSelectedVisit({
       ...selectedVisit,
@@ -720,6 +726,7 @@ const addProductToVisit = async () => {
     setLoading(false);
   }
 };
+
 
 
 const removeProductFromVisit = async (productId: string) => {

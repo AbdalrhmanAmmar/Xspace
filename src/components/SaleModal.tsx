@@ -229,30 +229,24 @@ const checkProductsAvailability = async () => {
 
 const updateProductsQuantities = async () => {
   const updates = [];
-  
-  for (const item of cart) {
-    const product = products.find(p => p.id === item.id);
-    if (!product) continue;
 
-    // تحديث المنتج الرئيسي
+  for (const item of cart) {
+    // تقليل كمية المنتج الأساسي
     updates.push(
-      supabase
-        .from('products')
-        .update({ quantity: product.quantity - item.quantity })
-        .eq('id', item.id)
+      supabase.rpc('decrement_product_quantity', {
+        product_id: item.id,
+        decrement_by: item.quantity
+      })
     );
 
-    // تحديث المنتجات المرتبطة
+    // تقليل كمية المنتجات المرتبطة
     const linkedItems = linkedProducts.filter(lp => lp.main_product_id === item.id);
     for (const link of linkedItems) {
-      const linkedProduct = products.find(p => p.id === link.linked_product_id);
-      if (!linkedProduct) continue;
-
       updates.push(
-        supabase
-          .from('products')
-          .update({ quantity: linkedProduct.quantity - (link.quantity * item.quantity) })
-          .eq('id', link.linked_product_id)
+        supabase.rpc('decrement_product_quantity', {
+          product_id: link.linked_product_id,
+          decrement_by: link.quantity * item.quantity
+        })
       );
     }
   }
@@ -262,6 +256,7 @@ const updateProductsQuantities = async () => {
     if (result.error) throw result.error;
   });
 };
+
 
 const recordSale = async () => {
   const salesData = [];
@@ -354,21 +349,7 @@ const handleSaleError = (err: any) => {
   <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-lg mb-6">
     <div className="font-bold">خطأ في عملية البيع:</div>
     <div>{error}</div>
-    <button
-      onClick={() => {
-        console.group("Sale Error Debugging");
-        console.log("Cart Contents:", cart);
-        console.log("Products State:", products);
-        console.log("Error Details:", {
-          message: error,
-          time: new Date().toISOString()
-        });
-        console.groupEnd();
-      }}
-      className="mt-2 text-xs bg-red-500/20 hover:bg-red-500/30 px-2 py-1 rounded"
-    >
-      عرض تفاصيل الخطأ (للمطور)
-    </button>
+
   </div>
 )}
 
