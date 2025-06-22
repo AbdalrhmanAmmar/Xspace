@@ -339,7 +339,7 @@ function Profits() {
               title="صافي ربح المنتجات"
               icon={DollarSign}
               amount={revenue.productProfit}
-              color="bg-lime-600"
+              color="bg-lime-500"
             />
             <RevenueCard
               title="إجمالي الإيرادات"
