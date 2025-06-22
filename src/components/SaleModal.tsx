@@ -200,7 +200,8 @@ export const SaleModal = ({ isOpen, onClose, onSaleComplete,Setproduct }: SaleMo
           buy_price: mainProduct.buyPrice || 0,
           quantity: item.quantity,
           profit: (mainProduct.price - (mainProduct.buyPrice || 0)) * item.quantity,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          visit_id: null, // ← مفيش زيارة
         });
 
         // تسجيل المنتجات المرتبطة

@@ -274,14 +274,15 @@ const fetchVisits = async () => {
         clients (
           name
         ),
-        visit_products (
-          *,
-          products (
-            id,
-            name,
-            price
-          )
-        ),
+product_sales (
+  *,
+  products (
+    id,
+    name,
+    price
+  )
+),
+
         visit_pauses (
           start_time,
           end_time
@@ -296,13 +297,14 @@ const fetchVisits = async () => {
       clientName: visit.clients?.name || "",
       startTime: new Date(visit.start_time),
       endTime: visit.end_time ? new Date(visit.end_time) : undefined,
-      products:
-        visit.visit_products?.map((vp: any) => ({
-          id: vp.products?.id,
-          name: vp.products?.name,
-          price: vp.price,
-          quantity: vp.quantity,
-        })) || [],
+products:
+  visit.product_sales?.map((ps: any) => ({
+    id: ps.products?.id,
+    name: ps.products?.name,
+    price: ps.price,
+    quantity: ps.quantity,
+  })) || [],
+
       totalAmount: visit.total_amount,
       isPaused: visit.is_paused,
       numberOfPeople: visit.number_of_people || 1,
@@ -624,119 +626,129 @@ const calculateTotalAmount = (visit: Visit): number => {
     }
   };
 
-  const endVisit = async (visitId: string) => {
-    try {
-      setLoading(true);
-      const currentTime = new Date().toISOString();
-      const visit = visits.find((v) => v.id === visitId);
+const endVisit = async (visitId: string) => {
+  try {
+    setLoading(true);
+    const currentTime = new Date().toISOString();
+    const visit = visits.find((v) => v.id === visitId);
 
-      if (visit?.isPaused) {
-        await resumeVisit(visitId);
-      }
-
-      const totalAmount = calculateTotalAmount(
-        visit || visits.find((v) => v.id === visitId)!
-      );
-
-      const { error } = await supabase
-        .from("visits")
-        .update({
-          end_time: currentTime,
-          total_amount: totalAmount,
-          number_of_people: visit?.numberOfPeople || 1, // تأكد من حفظ عدد الأشخاص
-        })
-        .eq("id", visitId);
-
-      if (error) throw error;
-
-      await fetchVisits();
-      setIsCalculated(true);
-    } catch (err) {
-      console.error("Error ending visit:", err);
-      setError("حدث خطأ أثناء إنهاء الزيارة");
-    } finally {
-      setLoading(false);
+    if (visit?.isPaused) {
+      await resumeVisit(visitId);
     }
-  };
 
-  const addProductToVisit = async () => {
-    if (!newProductId || !selectedVisit) return;
+    // حساب التكلفة الإجمالية (الوقت + المنتجات)
+    const timeCost = calculateTimeCost(visit);
+    const { data: sales, error: salesError } = await supabase
+      .from("product_sales")
+      .select("price, quantity")
+      .eq("visit_id", visitId);
 
-    try {
-      setLoading(true);
-      const product = products.find((p) => p.id === newProductId);
-      if (!product) throw new Error("Product not found");
+    if (salesError) throw salesError;
 
-      // Add product to visit
-      const { data, error } = await supabase
-        .from("visit_products")
-        .insert([
-          {
-            visit_id: selectedVisit.id,
-            product_id: product.id,
-            price: product.price,
-            quantity: newProductQuantity,
-          },
-        ])
-        .select()
-        .single();
+    const productsTotal = sales?.reduce((sum, item) => sum + (item.price * item.quantity), 0) || 0;
+    const totalAmount = timeCost + productsTotal;
 
-      if (error) throw error;
+    const { error } = await supabase
+      .from("visits")
+      .update({
+        end_time: currentTime,
+        total_amount: totalAmount,
+        number_of_people: visit?.numberOfPeople || 1,
+      })
+      .eq("id", visitId);
 
-      // تحديث حالة الزيارة المحلية مباشرة دون انتظار fetchVisits
-      setSelectedVisit({
-        ...selectedVisit,
-        products: [
-          ...selectedVisit.products,
-          {
-            id: product.id,
-            name: product.name,
-            price: product.price,
-            quantity: newProductQuantity,
-          },
-        ],
-      });
+    if (error) throw error;
 
-      // Reset form
-      setNewProductId("");
-      setNewProductQuantity(1);
-      setProductSearchTerm("");
+    await fetchVisits();
+    setIsCalculated(true);
+  } catch (err) {
+    console.error("Error ending visit:", err);
+    setError("حدث خطأ أثناء إنهاء الزيارة");
+  } finally {
+    setLoading(false);
+  }
+};
 
-      // تحديث قائمة الزيارات في الخلفية
-      fetchVisits().catch(console.error);
-    } catch (err) {
-      console.error("Error adding product:", err);
-      setError("حدث خطأ أثناء إضافة المنتج");
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const removeProductFromVisit = async (productId: string) => {
-    if (!selectedVisit) return;
+const addProductToVisit = async () => {
+  if (!newProductId || !selectedVisit) return;
 
-    try {
-      setLoading(true);
+  try {
+    setLoading(true);
+    const product = products.find((p) => p.id === newProductId);
+    if (!product) throw new Error("Product not found");
 
-      // Remove product from visit
-      const { error } = await supabase
-        .from("visit_products")
-        .delete()
-        .eq("visit_id", selectedVisit.id)
-        .eq("product_id", productId);
+    // إضافة المنتج إلى جدول product_sales
+    const { data, error } = await supabase
+      .from("product_sales")
+      .insert([
+        {
+          visit_id: selectedVisit.id,
+          product_id: product.id,
+          price: product.price,
+          quantity: newProductQuantity,
+        },
+      ])
+      .select()
+      .single();
 
-      if (error) throw error;
+    if (error) throw error;
 
-      // Refresh visits
-      await fetchVisits();
-      setSelectedVisit(visits.find((v) => v.id === selectedVisit.id) || null);
-    } catch (err) {
-      console.error("Error removing product:", err);
-      setError("حدث خطأ أثناء إزالة المنتج");
-    } finally {
-      setLoading(false);
-    }
-  };
+    // تحديث الحالة المحلية
+    setSelectedVisit({
+      ...selectedVisit,
+      products: [
+        ...selectedVisit.products,
+        {
+          id: product.id,
+          name: product.name,
+          price: product.price,
+          quantity: newProductQuantity,
+        },
+      ],
+    });
+
+    // إعادة تعيين الحقول
+    setNewProductId("");
+    setNewProductQuantity(1);
+    setProductSearchTerm("");
+
+    // تحديث البيانات في الخلفية
+    fetchVisits().catch(console.error);
+  } catch (err) {
+    console.error("Error adding product:", err);
+    setError("حدث خطأ أثناء إضافة المنتج");
+  } finally {
+    setLoading(false);
+  }
+};
+
+
+const removeProductFromVisit = async (productId: string) => {
+  if (!selectedVisit) return;
+
+  try {
+    setLoading(true);
+
+    // حذف المنتج من جدول product_sales
+    const { error } = await supabase
+      .from("product_sales")
+      .delete()
+      .eq("visit_id", selectedVisit.id)
+      .eq("product_id", productId);
+
+    if (error) throw error;
+
+    // تحديث البيانات
+    await fetchVisits();
+    setSelectedVisit(visits.find((v) => v.id === selectedVisit.id) || null);
+  } catch (err) {
+    console.error("Error removing product:", err);
+    setError("حدث خطأ أثناء إزالة المنتج");
+  } finally {
+    setLoading(false);
+  }
+};
 
   const deleteVisitRecord = async (visitId: string) => {
     if (!user) {
