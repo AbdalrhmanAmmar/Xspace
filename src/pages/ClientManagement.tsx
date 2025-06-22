@@ -1317,13 +1317,90 @@ const filteredVisits = visits
                     </div>
                   )}
                 </div>
-                           <button
-                onClick={() => setIsSaleModalOpen(true)}
-                className="bg-purple-500/20 text-purple-400 gap-4 px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-              >
-                <ShoppingCart className="h-4 w-4" />
-                اضافه بيع
-              </button>
+          <div className="bg-slate-700/50 p-4 rounded-lg">
+                  <h3 className="text-sm font-medium text-slate-300 mb-3">
+                    إضافة منتجات
+                  </h3>
+                  <div className="flex gap-3">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={productSearchTerm}
+                        onChange={(e) => setProductSearchTerm(e.target.value)}
+                        onFocus={() => setIsProductDropdownOpen(true)}
+                        onBlur={() =>
+                          setTimeout(() => setIsProductDropdownOpen(false), 200)
+                        }
+                        placeholder="ابحث عن منتج..."
+                        className="w-full px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        disabled={loading || !!selectedVisit.endTime}
+                      />
+
+                      {isProductDropdownOpen && (
+                        <div className="absolute z-10 mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg shadow-lg max-h-60 overflow-auto">
+                          {filteredProducts.length > 0 ? (
+                            filteredProducts.map((product) => (
+                              <div
+                                key={product.id}
+                                onClick={() => {
+                                  setNewProductId(product.id);
+                                  setProductSearchTerm(
+                                    `${product.name} - ${formatCurrency(
+                                      product.price
+                                    )}`
+                                  );
+                                  setIsProductDropdownOpen(false);
+                                }}
+                                className="px-4 py-2 hover:bg-slate-700 cursor-pointer flex justify-between text-white"
+                              >
+                                <span>{product.name}</span>
+                                <span>{formatCurrency(product.price)}</span>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="px-4 py-2 text-slate-400">
+                              لا توجد منتجات مطابقة
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 bg-slate-800 rounded-lg border border-slate-700 px-3">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setNewProductQuantity((prev) => Math.max(1, prev - 1))
+                        }
+                        className="text-slate-400 hover:text-white"
+                        disabled={newProductQuantity <= 1}
+                      >
+                        <Minus className="h-4 w-4" />
+                      </button>
+                      <span className="text-white">{newProductQuantity}</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setNewProductQuantity((prev) => prev + 1)
+                        }
+                        className="text-slate-400 hover:text-white"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={addProductToVisit}
+                      disabled={
+                        !newProductId || loading || !!selectedVisit.endTime
+                      }
+                      className="bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      إضافة
+                    </button>
+                  </div>
+                </div>
           
 
                 <div className="bg-slate-700/50 p-4 rounded-lg">
@@ -1399,14 +1476,13 @@ const filteredVisits = visits
                   <div className="space-y-2">
                     <div className="flex justify-between text-white">
                       <span>المنتجات:</span>
-                      <span>
-                        {/* {formatCurrency(
+                       <span>
+                        {formatCurrency(
                           selectedVisit.products.reduce(
                             (sum, p) => sum + p.price * p.quantity,
                             0
                           )
-                        )} */}
-                        {product}
+                        )}
                       </span>
                     </div>
                     <div className="flex justify-between text-white">
