@@ -624,52 +624,40 @@ const calculateTotalAmount = (visit: Visit): number => {
     }
   };
 
-const endVisit = async (visitId: string) => {
-  try {
-    setLoading(true);
-    const currentTime = new Date().toISOString();
-    const visit = visits.find((v) => v.id === visitId);
+  const endVisit = async (visitId: string) => {
+    try {
+      setLoading(true);
+      const currentTime = new Date().toISOString();
+      const visit = visits.find((v) => v.id === visitId);
 
-    if (visit?.isPaused) {
-      await resumeVisit(visitId);
+      if (visit?.isPaused) {
+        await resumeVisit(visitId);
+      }
+
+      const totalAmount = calculateTotalAmount(
+        visit || visits.find((v) => v.id === visitId)!
+      );
+
+      const { error } = await supabase
+        .from("visits")
+        .update({
+          end_time: currentTime,
+          total_amount: totalAmount,
+          number_of_people: visit?.numberOfPeople || 1, // تأكد من حفظ عدد الأشخاص
+        })
+        .eq("id", visitId);
+
+      if (error) throw error;
+
+      await fetchVisits();
+      setIsCalculated(true);
+    } catch (err) {
+      console.error("Error ending visit:", err);
+      setError("حدث خطأ أثناء إنهاء الزيارة");
+    } finally {
+      setLoading(false);
     }
-
-    const hours = calculateVisitDuration(visit!);
-    const timeAmount = calculateTimeCost(
-      hours,
-      visit?.numberOfPeople || 1,
-      visit?.type || "default"
-    );
-
-    const productAmount = visit!.products.reduce(
-      (sum, p) => sum + p.price * p.quantity,
-      0
-    );
-
-    const totalAmount = timeAmount + productAmount;
-
-    const { error } = await supabase
-      .from("visits")
-      .update({
-        end_time: currentTime,
-        total_amount: totalAmount,
-        time_amount: timeAmount,
-        product_amount: {product},
-        number_of_people: visit?.numberOfPeople || 1,
-      })
-      .eq("id", visitId);
-
-    if (error) throw error;
-
-    await fetchVisits();
-    setIsCalculated(true);
-  } catch (err) {
-    console.error("Error ending visit:", err);
-    setError("حدث خطأ أثناء إنهاء الزيارة");
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const addProductToVisit = async () => {
     if (!newProductId || !selectedVisit) return;
