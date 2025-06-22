@@ -636,23 +636,18 @@ const endVisit = async (visitId: string) => {
       await resumeVisit(visitId);
     }
 
-    // حساب التكلفة الإجمالية (الوقت + المنتجات)
-    const timeCost = calculateTimeCost(visit);
-    const { data: sales, error: salesError } = await supabase
-      .from("product_sales")
-      .select("price, quantity")
-      .eq("visit_id", visitId);
-
-    if (salesError) throw salesError;
-
-    const productsTotal = sales?.reduce((sum, item) => sum + (item.price * item.quantity), 0) || 0;
-    const totalAmount = timeCost + productsTotal;
+    const hours = calculateVisitDuration(visit!);
+    const timeCost = calculateTimeCost(
+      hours,
+      visit?.numberOfPeople || 1,
+      visit?.type || "default"
+    );
 
     const { error } = await supabase
       .from("visits")
       .update({
         end_time: currentTime,
-        total_amount: totalAmount,
+        time_amount: timeCost,
         number_of_people: visit?.numberOfPeople || 1,
       })
       .eq("id", visitId);
@@ -668,6 +663,9 @@ const endVisit = async (visitId: string) => {
     setLoading(false);
   }
 };
+
+
+
 
 
 const addProductToVisit = async () => {
