@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Trash2, X, Settings, Check, Calendar, ChevronLeft, ChevronRight, Play, Square, Phone } from "lucide-react";
+import { Trash2, X, Settings, Check, Calendar, ChevronLeft, ChevronRight, Play, Square, Phone, Search } from "lucide-react";
 import { DbReservation, HALLS } from "../types/client";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
@@ -13,7 +13,8 @@ interface CalendarDay {
   date: Date;
   isCurrentMonth: boolean;
   isSelected: boolean;
-  hasReservations: boolean;
+  hasLargeHallReservations: boolean;
+  hasSmallHallReservations: boolean;
 }
 
 interface ReservationWithProfit extends DbReservation {
@@ -49,6 +50,9 @@ export const Reservations = () => {
   });
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [editingReservation, setEditingReservation] = useState<ReservationWithProfit | null>(null);
+  const [editEndTime, setEditEndTime] = useState("");
 
   useEffect(() => {
     if (user) {
@@ -59,7 +63,7 @@ export const Reservations = () => {
 
   useEffect(() => {
     filterReservations();
-  }, [reservations, selectedDate]);
+  }, [reservations, selectedDate, searchQuery]);
 
   const formatTimeTo12Hour = (time24: string) => {
     if (!time24) return "";
@@ -87,16 +91,29 @@ export const Reservations = () => {
         date: new Date(year, month - 1, prevMonthDays - i),
         isCurrentMonth: false,
         isSelected: false,
-        hasReservations: false
+        hasLargeHallReservations: false,
+        hasSmallHallReservations: false
       });
     }
     
     // Current month days
     for (let day = 1; day <= daysInMonth; day++) {
       const dayDate = new Date(year, month, day);
-      const hasReservations = reservations.some(res => {
+      
+      const hasLargeHallReservations = reservations.some(res => {
         const resDate = new Date(`${res.date}T${res.time}`);
         return (
+          res.hallName === HALLS.LARGE &&
+          resDate.getDate() === dayDate.getDate() &&
+          resDate.getMonth() === dayDate.getMonth() &&
+          resDate.getFullYear() === dayDate.getFullYear()
+        );
+      });
+      
+      const hasSmallHallReservations = reservations.some(res => {
+        const resDate = new Date(`${res.date}T${res.time}`);
+        return (
+          res.hallName === HALLS.SMALL &&
           resDate.getDate() === dayDate.getDate() &&
           resDate.getMonth() === dayDate.getMonth() &&
           resDate.getFullYear() === dayDate.getFullYear()
@@ -108,7 +125,8 @@ export const Reservations = () => {
         isCurrentMonth: true,
         isSelected: selectedDate ? 
           dayDate.toDateString() === selectedDate.toDateString() : false,
-        hasReservations
+        hasLargeHallReservations,
+        hasSmallHallReservations
       });
     }
     
@@ -119,7 +137,8 @@ export const Reservations = () => {
         date: new Date(year, month + 1, i),
         isCurrentMonth: false,
         isSelected: false,
-        hasReservations: false
+        hasLargeHallReservations: false,
+        hasSmallHallReservations: false
       });
     }
     
@@ -142,15 +161,22 @@ export const Reservations = () => {
   };
 
   const filterReservations = () => {
-    if (!selectedDate) {
-      setFilteredReservations(reservations);
-      return;
+    let filtered = [...reservations];
+
+    if (selectedDate) {
+      filtered = filtered.filter(reservation => {
+        const date = new Date(`${reservation.date}T${reservation.time}`);
+        return date.toDateString() === selectedDate.toDateString();
+      });
     }
 
-    const filtered = reservations.filter(reservation => {
-      const date = new Date(`${reservation.date}T${reservation.time}`);
-      return date.toDateString() === selectedDate.toDateString();
-    });
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(reservation => 
+        reservation.clientName.toLowerCase().includes(query) ||
+        (reservation.phone && reservation.phone.includes(query))
+      );
+    }
 
     setFilteredReservations(filtered);
   };
@@ -214,6 +240,7 @@ export const Reservations = () => {
           phone: res.clients?.phone || "",
           date: new Date(res.start_time).toISOString().split("T")[0],
           time: new Date(res.start_time).toTimeString().split(" ")[0].slice(0, 5),
+          endTime: new Date(res.end_time).toTimeString().split(" ")[0].slice(0, 5),
           duration: {
             hours: Math.floor(res.duration_minutes / 60),
             minutes: res.duration_minutes % 60,
@@ -237,14 +264,20 @@ export const Reservations = () => {
     }
   };
 
-  const checkTimeConflict = async (startTime: string, endTime: string, hallName: string) => {
+  const checkTimeConflict = async (startTime: string, endTime: string, hallName: string, excludeId?: string) => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from("reservations")
         .select("*")
         .eq("hall_name", hallName)
         .neq("status", "cancelled")
         .or(`and(start_time.lte.${endTime},end_time.gte.${startTime})`);
+
+      if (excludeId) {
+        query = query.neq("id", excludeId);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       return (data && data.length > 0);
@@ -479,6 +512,59 @@ export const Reservations = () => {
     } catch (err: any) {
       console.error("Error saving prices:", err);
       setError(err.message || "حدث خطأ أثناء حفظ الأسعار");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateReservationTime = async () => {
+    if (!editingReservation || !editEndTime) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const durationInMinutes = calculateDuration(editingReservation.time, editEndTime);
+      if (durationInMinutes <= 0) {
+        setError("وقت النهاية يجب أن يكون بعد وقت البداية");
+        return;
+      }
+
+      const startDateTime = new Date(`${editingReservation.date}T${editingReservation.time}`);
+      const endDateTime = new Date(`${editingReservation.date}T${editEndTime}`);
+
+      const hasConflict = await checkTimeConflict(
+        startDateTime.toISOString(),
+        endDateTime.toISOString(),
+        editingReservation.hallName,
+        editingReservation.id
+      );
+
+      if (hasConflict) {
+        setError("هذا الموعد محجوز بالفعل، يرجى اختيار موعد آخر");
+        return;
+      }
+
+      const hallPrice = editingReservation.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall;
+      const totalPrice = (hallPrice / 60) * durationInMinutes;
+
+      const { error: updateError } = await supabase
+        .from("reservations")
+        .update({
+          end_time: endDateTime.toISOString(),
+          duration_minutes: durationInMinutes,
+          total_price: totalPrice,
+        })
+        .eq("id", editingReservation.id);
+
+      if (updateError) throw updateError;
+
+      await fetchReservations();
+      setEditingReservation(null);
+      setEditEndTime("");
+    } catch (err: any) {
+      console.error("Error updating reservation time:", err);
+      setError(err.message || "حدث خطأ أثناء تحديث وقت الحجز");
     } finally {
       setLoading(false);
     }
@@ -874,16 +960,18 @@ export const Reservations = () => {
                       setSelectedDate(day.date);
                     }
                   }}
-                  className={`h-12 rounded-lg flex flex-col items-center justify-center text-sm
+                  className={`h-12 rounded-lg flex flex-col items-center justify-center text-sm relative
                     ${day.isCurrentMonth ? 'text-white' : 'text-slate-500'}
                     ${day.isSelected ? 'bg-blue-600 text-white' : ''}
-                    ${day.hasReservations && !day.isSelected ? 'bg-slate-700' : ''}
                     ${!day.isCurrentMonth ? 'opacity-50' : ''}
                     hover:bg-slate-600 transition-colors`}
                 >
                   <span>{day.date.getDate()}</span>
-                  {day.hasReservations && (
-                    <span className="w-1 h-1 rounded-full bg-blue-400 mt-1"></span>
+                  {day.hasLargeHallReservations && (
+                    <span className="absolute bottom-1 w-2 h-2 rounded-full bg-orange-400"></span>
+                  )}
+                  {day.hasSmallHallReservations && (
+                    <span className="absolute bottom-1 w-2 h-2 rounded-full bg-indigo-400"></span>
                   )}
                 </button>
               ))}
@@ -891,111 +979,168 @@ export const Reservations = () => {
           </div>
         </div>
 
-        {/* Reservations for Selected Date */}
-        {selectedDate && (
-          <div className="mt-6">
-            <h3 className="text-lg font-medium text-white mb-4">
-              الحجوزات في {selectedDate.toLocaleDateString('ar-EG')}
+        {/* Reservations List */}
+        <div className="mt-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-medium text-white">
+              {selectedDate 
+                ? `الحجوزات في ${selectedDate.toLocaleDateString('ar-EG')}`
+                : 'جميع الحجوزات'}
             </h3>
-            <div className="space-y-4">
-              {filteredReservations.length > 0 ? (
-                filteredReservations.map((reservation) => (
-                  <div
-                    key={reservation.id}
-                    className={`bg-white/10 backdrop-blur-lg p-6 rounded-xl border ${
-                      reservation.hallName === HALLS.LARGE 
-                        ? 'border-orange-500/30' 
-                        : 'border-indigo-500/30'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-xl font-semibold text-white">
-                            {reservation.clientName}
-                          </h3>
-                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(reservation.status)}`}>
-                            {getStatusText(reservation.status)}
-                          </span>
-                        </div>
-                        <div className="mt-2 space-y-1">
-                          <p className="text-blue-200">
-                            الوقت: {formatTimeTo12Hour(reservation.time)}
-                          </p>
-                          <p className="text-blue-200">
-                            المدة: {formatDurationDisplay(
-                              reservation.duration.hours * 60 +
-                                reservation.duration.minutes
-                            )}
-                          </p>
-                          <p className={`${
-                            reservation.hallName === HALLS.LARGE 
-                              ? 'text-orange-400' 
-                              : 'text-indigo-400'
-                          }`}>
-                            القاعة: {reservation.hallName}
-                          </p>
-                          {reservation.phone && (
-                            <p className="text-blue-200 flex items-center gap-2">
-                              <Phone className="h-4 w-4" />
-                              {reservation.phone}
-                            </p>
-                          )}
-                        </div>
-                        <div className="mt-4 pt-4 border-t border-slate-700">
-                          <p className="text-white">
-                            الإجمالي: {formatCurrency(reservation.totalPrice)}
-                          </p>
-                          <p className="text-emerald-400">
-                            العربون: {formatCurrency(reservation.deposit)}
-                            {reservation.depositPaid && <span className="text-green-400 mr-2">✓ تم إضافته للأرباح</span>}
-                          </p>
-                          <p className="text-blue-400">
-                            المتبقي: {formatCurrency(reservation.totalPrice - reservation.deposit)}
-                            {reservation.remainingPaid && <span className="text-green-400 mr-2">✓ تم إضافته للأرباح</span>}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-2 ml-4">
-                        {reservation.status === 'pending' && (
-                          <>
-                            <button
-                              onClick={() => handleStartReservation(reservation)}
-                              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-                              disabled={loading}
-                            >
-                              <Play className="h-4 w-4" />
-                              بدء الحجز
-                            </button>
-                            <button
-                              onClick={() => handleCancelReservation(reservation)}
-                              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
-                              disabled={loading}
-                            >
-                              <Square className="h-4 w-4" />
-                              إلغاء الحجز
-                            </button>
-                          </>
-                        )}
-                        <button
-                          onClick={() => handleDelete(reservation.id)}
-                          className="text-red-400 hover:text-red-300 transition-colors p-2"
-                          disabled={loading}
-                        >
-                          <Trash2 className="h-5 w-5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8 bg-slate-800/50 rounded-lg">
-                  <p className="text-slate-400">لا توجد حجوزات في هذا اليوم</p>
-                </div>
-              )}
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="ابحث باسم العميل أو رقم الهاتف"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                dir="rtl"
+              />
             </div>
           </div>
-        )}
+
+          <div className="space-y-4">
+            {filteredReservations.length > 0 ? (
+              filteredReservations.map((reservation) => (
+                <div
+                  key={reservation.id}
+                  className={`bg-white/10 backdrop-blur-lg p-6 rounded-xl border ${
+                    reservation.hallName === HALLS.LARGE 
+                      ? 'border-orange-500/30' 
+                      : 'border-indigo-500/30'
+                  }`}
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="text-xl font-semibold text-white">
+                          {reservation.clientName}
+                        </h3>
+                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(reservation.status)}`}>
+                          {getStatusText(reservation.status)}
+                        </span>
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        <p className="text-blue-200">
+                          التاريخ: {reservation.date}
+                        </p>
+                        <p className="text-blue-200">
+                          وقت البداية: {formatTimeTo12Hour(reservation.time)}
+                        </p>
+                        <p className="text-blue-200">
+                          وقت الانتهاء: {formatTimeTo12Hour(reservation.endTime)}
+                        </p>
+                        <p className="text-blue-200">
+                          المدة: {formatDurationDisplay(
+                            reservation.duration.hours * 60 +
+                              reservation.duration.minutes
+                          )}
+                        </p>
+                        <p className={`${
+                          reservation.hallName === HALLS.LARGE 
+                            ? 'text-orange-400' 
+                            : 'text-indigo-400'
+                        }`}>
+                          القاعة: {reservation.hallName}
+                        </p>
+                        {reservation.phone && (
+                          <p className="text-blue-200 flex items-center gap-2">
+                            <Phone className="h-4 w-4" />
+                            {reservation.phone}
+                          </p>
+                        )}
+                      </div>
+                      <div className="mt-4 pt-4 border-t border-slate-700">
+                        <p className="text-white">
+                          الإجمالي: {formatCurrency(reservation.totalPrice)}
+                        </p>
+                        <p className="text-emerald-400">
+                          العربون: {formatCurrency(reservation.deposit)}
+                          {reservation.depositPaid && <span className="text-green-400 mr-2">✓ تم إضافته للأرباح</span>}
+                        </p>
+                        <p className="text-blue-400">
+                          المتبقي: {formatCurrency(reservation.totalPrice - reservation.deposit)}
+                          {reservation.remainingPaid && <span className="text-green-400 mr-2">✓ تم إضافته للأرباح</span>}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-2 ml-4">
+                      {reservation.status === 'pending' && (
+                        <>
+                          <button
+                            onClick={() => handleStartReservation(reservation)}
+                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                            disabled={loading}
+                          >
+                            <Play className="h-4 w-4" />
+                            بدء الحجز
+                          </button>
+                          <button
+                            onClick={() => handleCancelReservation(reservation)}
+                            className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+                            disabled={loading}
+                          >
+                            <Square className="h-4 w-4" />
+                            إلغاء الحجز
+                          </button>
+                        </>
+                      )}
+                      {editingReservation?.id === reservation.id ? (
+                        <div className="flex flex-col gap-2">
+                          <input
+                            type="time"
+                            value={editEndTime}
+                            onChange={(e) => setEditEndTime(e.target.value)}
+                            className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white"
+                          />
+                          <button
+                            onClick={handleUpdateReservationTime}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                            disabled={loading}
+                          >
+                            حفظ التعديل
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingReservation(null);
+                              setEditEndTime("");
+                            }}
+                            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
+                          >
+                            إلغاء
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setEditingReservation(reservation);
+                            setEditEndTime(reservation.endTime);
+                          }}
+                          className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors"
+                          disabled={loading}
+                        >
+                          تعديل وقت الانتهاء
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDelete(reservation.id)}
+                        className="text-red-400 hover:text-red-300 transition-colors p-2"
+                        disabled={loading}
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-8 bg-slate-800/50 rounded-lg">
+                <p className="text-slate-400">لا توجد حجوزات</p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -1347,7 +1347,7 @@ const filteredVisits = visits
                             filteredProducts.map((product) => (
                               <div
                                 key={product.id}
-                                onClick={() => {
+                                onMouseLeave={() => {
                                   setNewProductId(product.id);
                                   setProductSearchTerm(
                                     `${product.name} - ${formatCurrency(
@@ -1397,6 +1397,7 @@ const filteredVisits = visits
                     <button
                       type="button"
                       onClick={addProductToVisit}
+                      
                       disabled={
                         !newProductId || loading || !!selectedVisit.endTime
                       }
@@ -1555,10 +1556,11 @@ const filteredVisits = visits
                     onClick={() => {
                       setSelectedVisit(null);
                       setIsCalculated(false); // إعادة تعيين الحالة للمرة القادمة
+                      deleteVisitRecord(selectedVisit.id);
                     }}
-                    className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-green-700 transition-colors"
+                    className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-green-700 transition-colors"
                   >
-                    إغلاق
+                    مسح الزيارة
                   </button>
                 )}
               </div>
