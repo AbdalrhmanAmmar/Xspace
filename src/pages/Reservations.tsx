@@ -4,6 +4,9 @@ import { DbReservation, HALLS } from "../types/client";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 
+// أولا، أضف هذا النوع في أعلى الملف مع الأنواع الأخرى
+type RecurrenceType = 'none' | 'weekly' | 'biweekly' | 'monthly';
+
 interface HallPrices {
   largeHall: number;
   smallHall: number;
@@ -23,6 +26,19 @@ interface ReservationWithProfit extends DbReservation {
   phone?: string;
 }
 
+interface FormData {
+  clientName: string;
+  phone: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  hallName: string;
+  deposit: string;
+  recurrence: RecurrenceType;
+  recurrenceEndDate?: string;
+  occurrences?: number;
+}
+
 export const Reservations = () => {
   const [reservations, setReservations] = useState<ReservationWithProfit[]>([]);
   const [filteredReservations, setFilteredReservations] = useState<ReservationWithProfit[]>([]);
@@ -31,15 +47,18 @@ export const Reservations = () => {
   const [showSettings, setShowSettings] = useState(false);
   const { user } = useAuth();
   const [selectedType, setSelectedType] = useState<"large" | "small">("large");
-  const [formData, setFormData] = useState({
-    clientName: "",
-    phone: "",
-    date: "",
-    startTime: "",
-    endTime: "",
-    hallName: HALLS.LARGE,
-    deposit: "",
-  });
+const [formData, setFormData] = useState<FormData>({
+  clientName: "",
+  phone: "",
+  date: "",
+  startTime: "",
+  endTime: "",
+  hallName: HALLS.LARGE,
+  deposit: "",
+  recurrence: "none",
+  recurrenceEndDate: "",
+  occurrences: 1,
+});
   const [prices, setPrices] = useState<HallPrices>({
     largeHall: 90,
     smallHall: 45,
@@ -75,6 +94,40 @@ export const Reservations = () => {
     
     return `${hours12}:${minutes} ${period}`;
   };
+
+  const generateRecurringDates = (startDate: string, recurrence: RecurrenceType, endDate?: string, occurrences?: number): string[] => {
+  const dates: string[] = [startDate];
+  if (recurrence === 'none') return dates;
+
+  const start = new Date(startDate);
+  let current = new Date(start);
+  let count = 1;
+
+  while (true) {
+    if (recurrence === 'weekly') {
+      current.setDate(current.getDate() + 7);
+    } else if (recurrence === 'biweekly') {
+      current.setDate(current.getDate() + 14);
+    } else if (recurrence === 'monthly') {
+      current.setMonth(current.getMonth() + 1);
+    }
+
+    // التوقف إذا وصلنا لتاريخ الانتهاء
+    if (endDate && new Date(current) > new Date(endDate)) {
+      break;
+    }
+
+    // التوقف إذا وصلنا لعدد التكرارات المطلوب
+    if (occurrences && count >= occurrences) {
+      break;
+    }
+
+    dates.push(current.toISOString().split('T')[0]);
+    count++;
+  }
+
+  return dates;
+};
 
   const getDaysInMonth = (date: Date): CalendarDay[] => {
     const year = date.getFullYear();
@@ -311,25 +364,65 @@ export const Reservations = () => {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) {
-      setError("يجب تسجيل الدخول أولاً");
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!user) {
+    setError("يجب تسجيل الدخول أولاً");
+    return;
+  }
+
+  try {
+    setLoading(true);
+    setError(null);
+
+    const durationInMinutes = calculateDuration(formData.startTime, formData.endTime);
+    if (durationInMinutes <= 0) {
+      setError("وقت النهاية يجب أن يكون بعد وقت البداية");
       return;
     }
 
-    try {
-      setLoading(true);
-      setError(null);
+    // إنشاء أو البحث عن العميل
+    const { data: clientData, error: clientError } = await supabase
+      .from("clients")
+      .insert([
+        {
+          name: formData.clientName,
+          phone: formData.phone,
+          is_new_client: true,
+          last_visit: new Date().toISOString(),
+        },
+      ])
+      .select()
+      .single();
 
-      const durationInMinutes = calculateDuration(formData.startTime, formData.endTime);
-      if (durationInMinutes <= 0) {
-        setError("وقت النهاية يجب أن يكون بعد وقت البداية");
-        return;
-      }
+    if (clientError && clientError.code !== "23505") throw clientError;
 
-      const startDateTime = new Date(`${formData.date}T${formData.startTime}`);
-      const endDateTime = new Date(`${formData.date}T${formData.endTime}`);
+    let clientId = clientData?.id;
+    if (!clientId) {
+      const { data: existingClient, error: searchError } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("name", formData.clientName)
+        .single();
+
+      if (searchError) throw searchError;
+      clientId = existingClient.id;
+    }
+
+    const hallPrice = formData.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall;
+    const totalPrice = (hallPrice / 60) * durationInMinutes;
+
+    // إنشاء الحجوزات المتكررة
+    const dates = generateRecurringDates(
+      formData.date,
+      formData.recurrence,
+      formData.recurrenceEndDate,
+      formData.occurrences
+    );
+
+    const reservationPromises = dates.map(async (date) => {
+      const startDateTime = new Date(`${date}T${formData.startTime}`);
+      const endDateTime = new Date(`${date}T${formData.endTime}`);
 
       const hasConflict = await checkTimeConflict(
         startDateTime.toISOString(),
@@ -338,39 +431,8 @@ export const Reservations = () => {
       );
 
       if (hasConflict) {
-        setError("هذا الموعد محجوز بالفعل، يرجى اختيار موعد آخر");
-        return;
+        throw new Error(`هذا الموعد محجوز بالفعل في تاريخ ${date}، يرجى اختيار موعد آخر`);
       }
-
-      const { data: clientData, error: clientError } = await supabase
-        .from("clients")
-        .insert([
-          {
-            name: formData.clientName,
-            phone: formData.phone,
-            is_new_client: true,
-            last_visit: new Date().toISOString(),
-          },
-        ])
-        .select()
-        .single();
-
-      if (clientError && clientError.code !== "23505") throw clientError;
-
-      let clientId = clientData?.id;
-      if (!clientId) {
-        const { data: existingClient, error: searchError } = await supabase
-          .from("clients")
-          .select("id")
-          .eq("name", formData.clientName)
-          .single();
-
-        if (searchError) throw searchError;
-        clientId = existingClient.id;
-      }
-
-      const hallPrice = formData.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall;
-      const totalPrice = (hallPrice / 60) * durationInMinutes;
 
       const { data: reservationData, error: reservationError } = await supabase
         .from("reservations")
@@ -384,6 +446,9 @@ export const Reservations = () => {
             total_price: totalPrice,
             deposit_amount: Number(formData.deposit) || 0,
             status: "pending",
+            is_recurring: formData.recurrence !== 'none',
+            recurrence_type: formData.recurrence,
+            recurrence_end_date: formData.recurrenceEndDate || null,
           },
         ])
         .select()
@@ -395,24 +460,33 @@ export const Reservations = () => {
         await addToTodayProfits(Number(formData.deposit), 'deposit', reservationData.id);
       }
 
-      await fetchReservations();
-      setFormData({
-        clientName: "",
-        phone: "",
-        date: "",
-        startTime: "",
-        endTime: "",
-        hallName: HALLS.LARGE,
-        deposit: "",
-      });
-      setSelectedType("large");
-    } catch (err: any) {
-      console.error("Error saving reservation:", err);
-      setError(err.message || "حدث خطأ أثناء حفظ الحجز");
-    } finally {
-      setLoading(false);
-    }
-  };
+      return reservationData;
+    });
+
+    await Promise.all(reservationPromises);
+    await fetchReservations();
+
+    // إعادة تعيين النموذج
+    setFormData({
+      clientName: "",
+      phone: "",
+      date: "",
+      startTime: "",
+      endTime: "",
+      hallName: HALLS.LARGE,
+      deposit: "",
+      recurrence: "none",
+      recurrenceEndDate: "",
+      occurrences: 1,
+    });
+    setSelectedType("large");
+  } catch (err: any) {
+    console.error("Error saving reservation:", err);
+    setError(err.message || "حدث خطأ أثناء حفظ الحجز");
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleStartReservation = async (reservation: ReservationWithProfit) => {
     if (!confirm("هل أنت متأكد من بدء هذا الحجز؟")) return;
@@ -861,6 +935,58 @@ export const Reservations = () => {
                 <label className="block text-sm font-medium text-blue-200 mb-2">
                   العربون (جنيه)
                 </label>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+  <div>
+    <label className="block text-sm font-medium text-blue-200 mb-2">
+      التكرار
+    </label>
+    <select
+      value={formData.recurrence}
+      onChange={(e) => setFormData({ ...formData, recurrence: e.target.value as RecurrenceType })}
+      className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+      disabled={loading}
+    >
+      <option value="none">بدون تكرار</option>
+      <option value="weekly">أسبوعي</option>
+      <option value="biweekly">كل أسبوعين</option>
+      <option value="monthly">شهري</option>
+    </select>
+  </div>
+
+  {formData.recurrence !== 'none' && (
+    <div>
+      <label className="block text-sm font-medium text-blue-200 mb-2">
+        تاريخ الانتهاء (اختياري)
+      </label>
+      <input
+        type="date"
+        value={formData.recurrenceEndDate}
+        onChange={(e) => setFormData({ ...formData, recurrenceEndDate: e.target.value })}
+        className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        disabled={loading}
+      />
+      <p className="text-xs text-slate-400 mt-1">اتركه فارغًا إذا كنت تريد تحديد عدد التكرارات</p>
+    </div>
+  )}
+
+  {formData.recurrence !== 'none' && !formData.recurrenceEndDate && (
+    <div className="md:col-span-2">
+      <label className="block text-sm font-medium text-blue-200 mb-2">
+        عدد التكرارات (بما في ذلك الحجز الأصلي)
+      </label>
+      <input
+        type="number"
+        min="1"
+        max="52"
+        value={formData.occurrences}
+        onChange={(e) => setFormData({ ...formData, occurrences: Number(e.target.value) })}
+        className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        disabled={loading}
+      />
+    </div>
+  )}
+</div>
                 <input
                   type="number"
                   value={formData.deposit}

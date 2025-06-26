@@ -501,8 +501,8 @@ const handleSaleError = (err: any) => {
                       <span>{calculateTotal().toLocaleString("ar-EG")} جنيه</span>
                     </div>
                     <div className="flex justify-between text-green-400 text-sm mt-1">
-                      <span>صافي الربح:</span>
-                      <span>{calculateProfit().toLocaleString("ar-EG")} جنيه</span>
+                      {/* <span>صافي الربح:</span> */}
+                      {/* <span>{calculateProfit().toLocaleString("ar-EG")} جنيه</span> */}
                     </div>
                   </div>
                 </div>
@@ -544,11 +544,8 @@ const handleSaleError = (err: any) => {
             <div className="flex flex-col items-center text-center">
               <CheckCircle className="h-12 w-12 text-green-500 mb-4" />
               <h3 className="text-xl font-semibold text-white mb-2">تمت العملية بنجاح!</h3>
-              <p className="text-slate-300 mb-2">
-                إجمالي المبلغ: <span className="font-bold text-white">{saleTotal.toLocaleString("ar-EG")} جنيه</span>
-              </p>
               <p className="text-slate-300 mb-4">
-                صافي الربح: <span className="font-bold text-green-400">{saleProfit.toLocaleString("ar-EG")} جنيه</span>
+                تم تسجيل عملية البيع بنجاح. يمكنك الآن إغلاق هذه النافذة.
               </p>
               <button
                 onClick={closeSuccessModal}
