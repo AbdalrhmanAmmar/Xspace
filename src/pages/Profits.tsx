@@ -89,19 +89,19 @@ function Profits() {
 
       const { data: visitsData } = await supabase
         .from("visits")
-        .select("total_amount, created_at");
+        .select("time_amount, created_at");
 
       const { data: deletedVisitsData } = await supabase
         .from("deleted_visit")
-        .select("total_amount, start_time, time_amount");
+        .select("time_amount, start_time, time_amount");
 
       const allVisitsData = [
         ...(visitsData || []).map((v) => ({
-          amount: parseFloat(v.total_amount) || 0,
+          amount: parseFloat(v.time_amount) || 0,
           created_at: v.created_at,
         })),
         ...(deletedVisitsData || []).map((v) => ({
-          amount: parseFloat(v.total_amount) || parseFloat(v.time_amount) || 0,
+          amount: parseFloat(v.time_amount) || parseFloat(v.time_amount) || 0,
           created_at: v.start_time,
         })),
       ];
