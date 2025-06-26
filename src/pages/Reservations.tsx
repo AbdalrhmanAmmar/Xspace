@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Trash2, X, Settings, Check, Calendar, ChevronLeft, ChevronRight, Play, Square } from "lucide-react";
+import { Trash2, X, Settings, Check, Calendar, ChevronLeft, ChevronRight, Play, Square, Phone } from "lucide-react";
 import { DbReservation, HALLS } from "../types/client";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
@@ -19,6 +19,7 @@ interface CalendarDay {
 interface ReservationWithProfit extends DbReservation {
   depositPaid: boolean;
   remainingPaid: boolean;
+  phone?: string;
 }
 
 export const Reservations = () => {
@@ -31,6 +32,7 @@ export const Reservations = () => {
   const [selectedType, setSelectedType] = useState<"large" | "small">("large");
   const [formData, setFormData] = useState({
     clientName: "",
+    phone: "",
     date: "",
     startTime: "",
     endTime: "",
@@ -194,7 +196,7 @@ export const Reservations = () => {
         .from("reservations")
         .select(`
           *,
-          clients (name),
+          clients (name, phone),
           reservation_profits (type, amount)
         `)
         .order("start_time", { ascending: false });
@@ -209,6 +211,7 @@ export const Reservations = () => {
         return {
           id: res.id,
           clientName: res.clients?.name || "",
+          phone: res.clients?.phone || "",
           date: new Date(res.start_time).toISOString().split("T")[0],
           time: new Date(res.start_time).toTimeString().split(" ")[0].slice(0, 5),
           duration: {
@@ -259,7 +262,6 @@ export const Reservations = () => {
 
   const addToTodayProfits = async (amount: number, type: 'deposit' | 'remaining', reservationId: string) => {
     try {
-      // إضافة الربح إلى جدول أرباح الحجوزات
       const { error } = await supabase
         .from("reservation_profits")
         .insert([{
@@ -312,6 +314,7 @@ export const Reservations = () => {
         .insert([
           {
             name: formData.clientName,
+            phone: formData.phone,
             is_new_client: true,
             last_visit: new Date().toISOString(),
           },
@@ -355,7 +358,6 @@ export const Reservations = () => {
 
       if (reservationError) throw reservationError;
 
-      // إضافة العربون إلى أرباح اليوم
       if (Number(formData.deposit) > 0) {
         await addToTodayProfits(Number(formData.deposit), 'deposit', reservationData.id);
       }
@@ -363,6 +365,7 @@ export const Reservations = () => {
       await fetchReservations();
       setFormData({
         clientName: "",
+        phone: "",
         date: "",
         startTime: "",
         endTime: "",
@@ -385,7 +388,6 @@ export const Reservations = () => {
       setLoading(true);
       setError(null);
 
-      // تحديث حالة الحجز إلى "started"
       const { error: updateError } = await supabase
         .from("reservations")
         .update({
@@ -396,7 +398,6 @@ export const Reservations = () => {
 
       if (updateError) throw updateError;
 
-      // إضافة المبلغ المتبقي إلى أرباح اليوم
       const remainingAmount = reservation.totalPrice - reservation.deposit;
       if (remainingAmount > 0) {
         await addToTodayProfits(remainingAmount, 'remaining', reservation.id);
@@ -418,7 +419,6 @@ export const Reservations = () => {
       setLoading(true);
       setError(null);
 
-      // تحديث حالة الحجز إلى "cancelled"
       const { error: updateError } = await supabase
         .from("reservations")
         .update({ status: "cancelled" })
@@ -544,7 +544,7 @@ export const Reservations = () => {
 
   return (
     <div className="min-h-screen bg-slate-900">
-      <div className="max-w-6xl mx-auto p-6">
+      <div className="max-w-7xl mx-auto p-6">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold text-white">الحجوزات</h1>
           <button
@@ -631,247 +631,269 @@ export const Reservations = () => {
           </div>
         )}
 
-        <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 mb-8">
-          <h2 className="text-xl font-semibold text-white mb-6">حجز جديد</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Form Section */}
+          <div className="lg:col-span-2 bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+            <h2 className="text-xl font-semibold text-white mb-6">حجز جديد</h2>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-blue-200 mb-2">
-                اسم العميل
-              </label>
-              <input
-                type="text"
-                value={formData.clientName}
-                onChange={(e) =>
-                  setFormData({ ...formData, clientName: e.target.value })
-                }
-                className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="أدخل اسم العميل"
-                dir="rtl"
-                required
-                disabled={loading}
-              />
-            </div>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-blue-200 mb-2">
+                    اسم العميل
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.clientName}
+                    onChange={(e) =>
+                      setFormData({ ...formData, clientName: e.target.value })
+                    }
+                    className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="أدخل اسم العميل"
+                    dir="rtl"
+                    required
+                    disabled={loading}
+                  />
+                </div>
 
-            <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-blue-200 mb-2">
+                    رقم الهاتف
+                  </label>
+                  <input
+                    type="tel"
+                    value={formData.phone}
+                    onChange={(e) =>
+                      setFormData({ ...formData, phone: e.target.value })
+                    }
+                    className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="أدخل رقم الهاتف"
+                    dir="ltr"
+                    disabled={loading}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-blue-200 mb-2">
+                    التاريخ
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.date}
+                    onChange={(e) =>
+                      setFormData({ ...formData, date: e.target.value })
+                    }
+                    className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                    disabled={loading}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-blue-200 mb-2">
+                      وقت البداية
+                    </label>
+                    <input
+                      type="time"
+                      value={formData.startTime}
+                      onChange={(e) =>
+                        setFormData({ ...formData, startTime: e.target.value })
+                      }
+                      className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                      disabled={loading}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-blue-200 mb-2">
+                      وقت النهاية
+                    </label>
+                    <input
+                      type="time"
+                      value={formData.endTime}
+                      onChange={(e) =>
+                        setFormData({ ...formData, endTime: e.target.value })
+                      }
+                      className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                      disabled={loading}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-blue-200 mb-2">
+                  اختار نوع القاعة
+                </label>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedType("large");
+                      setFormData({
+                        ...formData,
+                        hallName: HALLS.LARGE,
+                      });
+                    }}
+                    className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                      selectedType === "large"
+                        ? "bg-orange-600 text-white border-orange-700"
+                        : "bg-slate-800 text-orange-200 border-slate-600 hover:bg-slate-700"
+                    }`}
+                    disabled={loading}
+                  >
+                    قاعة كبيرة - {formatCurrency(prices.largeHall)}/ساعة
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedType("small");
+                      setFormData({
+                        ...formData,
+                        hallName: HALLS.SMALL,
+                      });
+                    }}
+                    className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                      selectedType === "small"
+                        ? "bg-indigo-600 text-white border-indigo-700"
+                        : "bg-slate-800 text-indigo-200 border-slate-600 hover:bg-slate-700"
+                    }`}
+                    disabled={loading}
+                  >
+                    قاعة صغيرة - {formatCurrency(prices.smallHall)}/ساعة
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-blue-200 mb-2">
-                  التاريخ
+                  العربون (جنيه)
                 </label>
                 <input
-                  type="date"
-                  value={formData.date}
+                  type="number"
+                  value={formData.deposit}
                   onChange={(e) =>
-                    setFormData({ ...formData, date: e.target.value })
+                    setFormData({ ...formData, deposit: e.target.value })
                   }
                   className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="أدخل مبلغ العربون"
+                  dir="rtl"
+                  min="0"
                   required
                   disabled={loading}
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-blue-200 mb-2">
-                    وقت البداية
-                  </label>
-                  <input
-                    type="time"
-                    value={formData.startTime}
-                    onChange={(e) =>
-                      setFormData({ ...formData, startTime: e.target.value })
-                    }
-                    className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                    disabled={loading}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-blue-200 mb-2">
-                    وقت النهاية
-                  </label>
-                  <input
-                    type="time"
-                    value={formData.endTime}
-                    onChange={(e) =>
-                      setFormData({ ...formData, endTime: e.target.value })
-                    }
-                    className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                    disabled={loading}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-blue-200 mb-2">
-                اختار نوع القاعة
-              </label>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedType("large");
-                    setFormData({
-                      ...formData,
-                      hallName: HALLS.LARGE,
-                    });
-                  }}
-                  className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
-                    selectedType === "large"
-                      ? "bg-blue-600 text-white border-blue-700"
-                      : "bg-slate-800 text-blue-200 border-slate-600 hover:bg-slate-700"
-                  }`}
-                  disabled={loading}
-                >
-                  قاعة كبيرة - {formatCurrency(prices.largeHall)}/ساعة
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedType("small");
-                    setFormData({
-                      ...formData,
-                      hallName: HALLS.SMALL,
-                    });
-                  }}
-                  className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
-                    selectedType === "small"
-                      ? "bg-blue-600 text-white border-blue-700"
-                      : "bg-slate-800 text-blue-200 border-slate-600 hover:bg-slate-700"
-                  }`}
-                  disabled={loading}
-                >
-                  قاعة صغيرة - {formatCurrency(prices.smallHall)}/ساعة
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-blue-200 mb-2">
-                العربون (جنيه)
-              </label>
-              <input
-                type="number"
-                value={formData.deposit}
-                onChange={(e) =>
-                  setFormData({ ...formData, deposit: e.target.value })
-                }
-                className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="أدخل مبلغ العربون"
-                dir="rtl"
-                min="0"
-                required
-                disabled={loading}
-              />
-            </div>
-
-            <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
-              <p className="text-blue-200">
-                سعر الساعة:{" "}
-                {formatCurrency(
-                  formData.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall
-                )}
-              </p>
-              <p className="text-blue-200">
-                المدة:{" "}
-                {formData.startTime && formData.endTime ? (
-                  formatDurationDisplay(calculateDuration(formData.startTime, formData.endTime))
-                ) : (
-                  "0 ساعة"
-                )}
-              </p>
-              <p className="text-white font-bold mt-2">
-                التكلفة الإجمالية:{" "}
-                {formData.startTime && formData.endTime ? (
-                  formatCurrency(
-                    calculateTotalPrice(
-                      formData.hallName,
-                      formData.startTime,
-                      formData.endTime
+              <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+                <p className="text-blue-200">
+                  سعر الساعة:{" "}
+                  {formatCurrency(
+                    formData.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall
+                  )}
+                </p>
+                <p className="text-blue-200">
+                  المدة:{" "}
+                  {formData.startTime && formData.endTime ? (
+                    formatDurationDisplay(calculateDuration(formData.startTime, formData.endTime))
+                  ) : (
+                    "0 ساعة"
+                  )}
+                </p>
+                <p className="text-white font-bold mt-2">
+                  التكلفة الإجمالية:{" "}
+                  {formData.startTime && formData.endTime ? (
+                    formatCurrency(
+                      calculateTotalPrice(
+                        formData.hallName,
+                        formData.startTime,
+                        formData.endTime
+                      )
                     )
-                  )
-                ) : (
-                  "0 جنيه"
-                )}
-              </p>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? "جاري الحفظ..." : "تأكيد الحجز"}
-            </button>
-          </form>
-        </div>
-
-        {/* Calendar Section */}
-        <div className="mb-6 bg-slate-800/50 p-4 rounded-lg">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-white flex items-center gap-2">
-              <Calendar className="h-5 w-5" />
-              التقويم الشهري
-            </h3>
-            <div className="flex items-center gap-4">
-              <button 
-                onClick={prevMonth}
-                className="text-blue-200 hover:text-white"
-              >
-                <ChevronRight className="h-5 w-5" />
-              </button>
-              <span className="text-white font-medium">
-                {getMonthName()}
-              </span>
-              <button 
-                onClick={nextMonth}
-                className="text-blue-200 hover:text-white"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-7 gap-1 mb-2">
-            {['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'].map(day => (
-              <div key={day} className="text-center text-blue-200 text-sm py-2">
-                {day}
+                  ) : (
+                    "0 جنيه"
+                  )}
+                </p>
               </div>
-            ))}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? "جاري الحفظ..." : "تأكيد الحجز"}
+              </button>
+            </form>
           </div>
 
-          <div className="grid grid-cols-7 gap-1">
-            {getDaysInMonth(currentMonth).map((day, index) => (
-              <button
-                key={index}
-                onClick={() => {
-                  if (day.isCurrentMonth) {
-                    setSelectedDate(day.date);
-                  }
-                }}
-                className={`h-14 rounded-lg flex flex-col items-center justify-center text-sm
-                  ${day.isCurrentMonth ? 'text-white' : 'text-slate-500'}
-                  ${day.isSelected ? 'bg-blue-600 text-white' : ''}
-                  ${day.hasReservations && !day.isSelected ? 'bg-slate-700' : ''}
-                  ${!day.isCurrentMonth ? 'opacity-50' : ''}
-                  hover:bg-slate-600 transition-colors`}
-              >
-                <span>{day.date.getDate()}</span>
-                {day.hasReservations && (
-                  <span className="w-1 h-1 rounded-full bg-blue-400 mt-1"></span>
-                )}
-              </button>
-            ))}
+          {/* Calendar Section */}
+          <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                <Calendar className="h-5 w-5" />
+                التقويم الشهري
+              </h3>
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={prevMonth}
+                  className="text-blue-200 hover:text-white"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+                <span className="text-white font-medium">
+                  {getMonthName()}
+                </span>
+                <button 
+                  onClick={nextMonth}
+                  className="text-blue-200 hover:text-white"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-7 gap-1 mb-2">
+              {['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'].map(day => (
+                <div key={day} className="text-center text-blue-200 text-sm py-2">
+                  {day}
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-1">
+              {getDaysInMonth(currentMonth).map((day, index) => (
+                <button
+                  key={index}
+                  onClick={() => {
+                    if (day.isCurrentMonth) {
+                      setSelectedDate(day.date);
+                    }
+                  }}
+                  className={`h-12 rounded-lg flex flex-col items-center justify-center text-sm
+                    ${day.isCurrentMonth ? 'text-white' : 'text-slate-500'}
+                    ${day.isSelected ? 'bg-blue-600 text-white' : ''}
+                    ${day.hasReservations && !day.isSelected ? 'bg-slate-700' : ''}
+                    ${!day.isCurrentMonth ? 'opacity-50' : ''}
+                    hover:bg-slate-600 transition-colors`}
+                >
+                  <span>{day.date.getDate()}</span>
+                  {day.hasReservations && (
+                    <span className="w-1 h-1 rounded-full bg-blue-400 mt-1"></span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
         {/* Reservations for Selected Date */}
         {selectedDate && (
-          <div className="mb-6">
+          <div className="mt-6">
             <h3 className="text-lg font-medium text-white mb-4">
               الحجوزات في {selectedDate.toLocaleDateString('ar-EG')}
             </h3>
@@ -880,7 +902,11 @@ export const Reservations = () => {
                 filteredReservations.map((reservation) => (
                   <div
                     key={reservation.id}
-                    className="bg-white/10 backdrop-blur-lg p-6 rounded-xl border border-white/20"
+                    className={`bg-white/10 backdrop-blur-lg p-6 rounded-xl border ${
+                      reservation.hallName === HALLS.LARGE 
+                        ? 'border-orange-500/30' 
+                        : 'border-indigo-500/30'
+                    }`}
                   >
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
@@ -902,7 +928,19 @@ export const Reservations = () => {
                                 reservation.duration.minutes
                             )}
                           </p>
-                          <p className="text-blue-200">القاعة: {reservation.hallName}</p>
+                          <p className={`${
+                            reservation.hallName === HALLS.LARGE 
+                              ? 'text-orange-400' 
+                              : 'text-indigo-400'
+                          }`}>
+                            القاعة: {reservation.hallName}
+                          </p>
+                          {reservation.phone && (
+                            <p className="text-blue-200 flex items-center gap-2">
+                              <Phone className="h-4 w-4" />
+                              {reservation.phone}
+                            </p>
+                          )}
                         </div>
                         <div className="mt-4 pt-4 border-t border-slate-700">
                           <p className="text-white">

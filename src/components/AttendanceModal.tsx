@@ -106,7 +106,7 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-800 rounded-xl p-6 w-full max-w-2xl border border-slate-700">
+      <div className="bg-slate-800 rounded-xl p-6 w-full max-w-2xl border border-slate-700 h-[700px] overflow-y-auto">
         <div className="flex justify-between items-center mb-6">
           <div>
             <h2 className="text-xl font-semibold text-white">تسجيل حضور العميل</h2>
