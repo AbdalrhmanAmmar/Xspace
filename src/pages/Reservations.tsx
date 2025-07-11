@@ -70,8 +70,18 @@ const [formData, setFormData] = useState<FormData>({
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [editingReservation, setEditingReservation] = useState<ReservationWithProfit | null>(null);
-  const [editEndTime, setEditEndTime] = useState("");
+const [editingReservation, setEditingReservation] = useState<ReservationWithProfit | null>(null);
+const [editFormData, setEditFormData] = useState<{
+  clientName: string;
+  phone: string;
+  startTime: string;
+  endTime: string;
+}>({
+  clientName: "",
+  phone: "",
+  startTime: "",
+  endTime: ""
+});  const [editEndTime, setEditEndTime] = useState("");
 
   useEffect(() => {
     if (user) {
@@ -289,6 +299,8 @@ const [formData, setFormData] = useState<FormData>({
 
         return {
           id: res.id,
+              clientId: res.client_id, // ✅ أضف هذا السطر
+
           clientName: res.clients?.name || "",
           phone: res.clients?.phone || "",
           date: new Date(res.start_time).toISOString().split("T")[0],
@@ -591,58 +603,70 @@ const handleSubmit = async (e: React.FormEvent) => {
     }
   };
 
-  const handleUpdateReservationTime = async () => {
-    if (!editingReservation || !editEndTime) return;
+const handleUpdateReservation = async () => {
+  if (!editingReservation) return;
 
-    try {
-      setLoading(true);
-      setError(null);
+  try {
+    setLoading(true);
+    setError(null);
 
-      const durationInMinutes = calculateDuration(editingReservation.time, editEndTime);
-      if (durationInMinutes <= 0) {
-        setError("وقت النهاية يجب أن يكون بعد وقت البداية");
-        return;
-      }
-
-      const startDateTime = new Date(`${editingReservation.date}T${editingReservation.time}`);
-      const endDateTime = new Date(`${editingReservation.date}T${editEndTime}`);
-
-      const hasConflict = await checkTimeConflict(
-        startDateTime.toISOString(),
-        endDateTime.toISOString(),
-        editingReservation.hallName,
-        editingReservation.id
-      );
-
-      if (hasConflict) {
-        setError("هذا الموعد محجوز بالفعل، يرجى اختيار موعد آخر");
-        return;
-      }
-
-      const hallPrice = editingReservation.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall;
-      const totalPrice = (hallPrice / 60) * durationInMinutes;
-
-      const { error: updateError } = await supabase
-        .from("reservations")
-        .update({
-          end_time: endDateTime.toISOString(),
-          duration_minutes: durationInMinutes,
-          total_price: totalPrice,
-        })
-        .eq("id", editingReservation.id);
-
-      if (updateError) throw updateError;
-
-      await fetchReservations();
-      setEditingReservation(null);
-      setEditEndTime("");
-    } catch (err: any) {
-      console.error("Error updating reservation time:", err);
-      setError(err.message || "حدث خطأ أثناء تحديث وقت الحجز");
-    } finally {
-      setLoading(false);
+    const durationInMinutes = calculateDuration(editFormData.startTime, editFormData.endTime);
+    if (durationInMinutes <= 0) {
+      setError("وقت النهاية يجب أن يكون بعد وقت البداية");
+      return;
     }
-  };
+
+    const startDateTime = new Date(`${editingReservation.date}T${editFormData.startTime}`);
+    const endDateTime = new Date(`${editingReservation.date}T${editFormData.endTime}`);
+
+    const hasConflict = await checkTimeConflict(
+      startDateTime.toISOString(),
+      endDateTime.toISOString(),
+      editingReservation.hallName,
+      editingReservation.id
+    );
+
+    if (hasConflict) {
+      setError("هذا الموعد محجوز بالفعل، يرجى اختيار موعد آخر");
+      return;
+    }
+
+    const hallPrice = editingReservation.hallName === HALLS.LARGE ? prices.largeHall : prices.smallHall;
+    const totalPrice = (hallPrice / 60) * durationInMinutes;
+
+    // تحديث بيانات العميل أولاً
+    const { error: clientError } = await supabase
+      .from("clients")
+      .update({
+        name: editFormData.clientName,
+        phone: editFormData.phone
+      })
+      .eq("id", editingReservation.clientId); // افترضنا أن لديك client_id في الحجز
+
+    if (clientError) throw clientError;
+
+    // ثم تحديث بيانات الحجز
+    const { error: updateError } = await supabase
+      .from("reservations")
+      .update({
+        end_time: endDateTime.toISOString(),
+        start_time: startDateTime.toISOString(),
+        duration_minutes: durationInMinutes,
+        total_price: totalPrice,
+      })
+.eq("id", editingReservation.clientId);
+
+    if (updateError) throw updateError;
+
+    await fetchReservations();
+    setEditingReservation(null);
+  } catch (err: any) {
+    console.error("Error updating reservation:", err);
+    setError(err.message || "حدث خطأ أثناء تحديث الحجز");
+  } finally {
+    setLoading(false);
+  }
+};
 
   const formatCurrency = (amount: number) => {
     return `${amount.toLocaleString("ar-EG")} جنيه`;
@@ -1212,43 +1236,80 @@ const handleSubmit = async (e: React.FormEvent) => {
                           </button>
                         </>
                       )}
-                      {editingReservation?.id === reservation.id ? (
-                        <div className="flex flex-col gap-2">
-                          <input
-                            type="time"
-                            value={editEndTime}
-                            onChange={(e) => setEditEndTime(e.target.value)}
-                            className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white"
-                          />
-                          <button
-                            onClick={handleUpdateReservationTime}
-                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                            disabled={loading}
-                          >
-                            حفظ التعديل
-                          </button>
-                          <button
-                            onClick={() => {
-                              setEditingReservation(null);
-                              setEditEndTime("");
-                            }}
-                            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
-                          >
-                            إلغاء
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            setEditingReservation(reservation);
-                            setEditEndTime(reservation.endTime);
-                          }}
-                          className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors"
-                          disabled={loading}
-                        >
-                          تعديل وقت الانتهاء
-                        </button>
-                      )}
+               {editingReservation?.id === reservation.id ? (
+  <div className="bg-slate-800 p-4 rounded-lg mt-4">
+    <h4 className="text-white mb-4">تعديل الحجز</h4>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label className="block text-sm text-blue-200 mb-1">اسم العميل</label>
+        <input
+          type="text"
+          value={editFormData.clientName}
+          onChange={(e) => setEditFormData({...editFormData, clientName: e.target.value})}
+          className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white"
+        />
+      </div>
+      <div>
+        <label className="block text-sm text-blue-200 mb-1">رقم الهاتف</label>
+        <input
+          type="tel"
+          value={editFormData.phone}
+          onChange={(e) => setEditFormData({...editFormData, phone: e.target.value})}
+          className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white"
+        />
+      </div>
+      <div>
+        <label className="block text-sm text-blue-200 mb-1">وقت البداية</label>
+        <input
+          type="time"
+          value={editFormData.startTime}
+          onChange={(e) => setEditFormData({...editFormData, startTime: e.target.value})}
+          className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white"
+        />
+      </div>
+      <div>
+        <label className="block text-sm text-blue-200 mb-1">وقت النهاية</label>
+        <input
+          type="time"
+          value={editFormData.endTime}
+          onChange={(e) => setEditFormData({...editFormData, endTime: e.target.value})}
+          className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white"
+        />
+      </div>
+    </div>
+    <div className="flex gap-2 mt-4">
+      <button
+        onClick={handleUpdateReservation}
+        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+        disabled={loading}
+      >
+        حفظ التعديلات
+      </button>
+      <button
+        onClick={() => setEditingReservation(null)}
+        className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
+      >
+        إلغاء
+      </button>
+    </div>
+  </div>
+) : (
+  <button
+    onClick={() => {
+      setEditingReservation(reservation);
+      setEditFormData({
+        clientName: reservation.clientName,
+        phone: reservation.phone || "",
+        startTime: reservation.time,
+        endTime: reservation.endTime
+      });
+    }}
+    className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors"
+    disabled={loading}
+  >
+    تعديل الحجز
+  </button>
+)}
                       <button
                         onClick={() => handleDelete(reservation.id)}
                         className="text-red-400 hover:text-red-300 transition-colors p-2"

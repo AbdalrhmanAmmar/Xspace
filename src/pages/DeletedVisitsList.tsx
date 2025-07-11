@@ -23,7 +23,7 @@ const DeletedVisitsList = () => {
             end_time,
             type,
             number_of_people,
-            total_amount,
+            time_amount,
             client:client_id (name)
           `)
           .order("deleted_at", { ascending: false });
@@ -179,7 +179,8 @@ const DeletedVisitsList = () => {
                   <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider">وقت النهاية</th>
                   <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider">نوع الزيارة</th>
                   <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider">عدد الأشخاص</th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider">المبلغ</th>
+                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider">اجمالي</th>
+                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider">اجمالي الوقت</th>
                 </tr>
               </thead>
               <tbody className="bg-slate-800 divide-y divide-slate-700">
@@ -210,7 +211,7 @@ const DeletedVisitsList = () => {
                         {visit.number_of_people}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-400">
-                        {visit.total_amount?.toLocaleString("ar-EG")} ج.م
+                        {visit.time_amount?.toLocaleString("ar-EG")} ج.م
                       </td>
                     </tr>
                   );

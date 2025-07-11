@@ -755,63 +755,103 @@ const removeProductFromVisit = async (productId: string) => {
   }
 };
 
-  const deleteVisitRecord = async (visitId: string) => {
-    if (!user) {
-      setError("يجب تسجيل الدخول أولاً");
-      return false;
+const deleteVisitRecord = async (visitId: string) => {
+  if (!user) {
+    setError("يجب تسجيل الدخول أولاً");
+    return false;
+  }
+
+  if (!visitId) {
+    setError("معرف الزيارة غير صالح");
+    return false;
+  }
+
+  try {
+    setLoading(true);
+    setError(null);
+
+    // 1. جلب بيانات الزيارة
+    const { data: visitData, error: visitError } = await supabase
+      .from("visits")
+      .select("*")
+      .eq("id", visitId)
+      .single();
+
+    if (visitError || !visitData) {
+      throw new Error("الزيارة غير موجودة");
     }
 
-    if (!visitId) {
-      setError("معرف الزيارة غير صالح");
-      return false;
+    // 2. جلب التوقفات
+    const { data: pausesData } = await supabase
+      .from("visit_pauses")
+      .select("start_time, end_time")
+      .eq("visit_id", visitId);
+
+    // 3. حساب مدة الزيارة الفعلية (بطرح التوقفات)
+    const startTime = new Date(visitData.start_time);
+    const endTime = visitData.end_time ? new Date(visitData.end_time) : new Date();
+    let durationMs = endTime.getTime() - startTime.getTime();
+
+    pausesData?.forEach((pause) => {
+      const pauseStart = new Date(pause.start_time);
+      const pauseEnd = pause.end_time ? new Date(pause.end_time) : new Date();
+      durationMs -= pauseEnd.getTime() - pauseStart.getTime();
+    });
+
+    const durationHours = Math.max(0, Math.floor(durationMs / (1000 * 60 * 60)));
+
+    // 4. حساب التكلفة
+    const timeAmount = calculateTimeCost(
+      durationHours,
+      visitData.number_of_people || 1,
+      visitData.type || "default"
+    );
+
+    const { data: productSales } = await supabase
+      .from("product_sales")
+      .select("price, quantity")
+      .eq("visit_id", visitId);
+
+    const productAmount =
+      productSales?.reduce((sum, p) => sum + p.price * p.quantity, 0) || 0;
+
+    const totalAmount = timeAmount + productAmount;
+
+    // 5. أرشفة الزيارة إلى deleted_visit
+    await supabase.from("deleted_visit").insert([
+      {
+        ...visitData,
+        id: crypto.randomUUID(), // معرف جديد
+        time_amount: timeAmount,
+        product_amount: productAmount,
+        total_amount: totalAmount,
+        deleted_at: new Date().toISOString(),
+        original_visit_date: visitData.start_time,
+      },
+    ]);
+
+    // 6. حذف البيانات المرتبطة
+    await supabase.from("product_sales").delete().eq("visit_id", visitId);
+    await supabase.from("visit_pauses").delete().eq("visit_id", visitId);
+    await supabase.from("visits").delete().eq("id", visitId);
+
+    // 7. تحديث الواجهة
+    setVisits((prev) => prev.filter((v) => v.id !== visitId));
+    if (selectedVisit?.id === visitId) {
+      setSelectedVisit(null);
     }
 
-    try {
-      setLoading(true);
-      setError(null);
+    alert("تم حذف الزيارة بنجاح مع حفظ كافة التفاصيل.");
+    return true;
+  } catch (err) {
+    console.error("فشل في حذف الزيارة:", err);
+    setError(err?.message || "حدث خطأ أثناء حذف الزيارة");
+    return false;
+  } finally {
+    setLoading(false);
+  }
+};
 
-      // 1. التحقق من وجود الزيارة أولاً
-      const { data: visitData, error: visitError } = await supabase
-        .from("visits")
-        .select("*")
-        .eq("id", visitId)
-        .single();
-
-      if (visitError || !visitData) {
-        throw new Error("الزيارة غير موجودة");
-      }
-
-      // 2. حذف جميع السجلات المرتبطة
-      await supabase.from("visit_products").delete().eq("visit_id", visitId);
-      await supabase.from("visit_pauses").delete().eq("visit_id", visitId);
-
-      // 3. حذف الزيارة نفسها
-      const { error: deleteError } = await supabase
-        .from("visits")
-        .delete()
-        .eq("id", visitId);
-
-      if (deleteError) throw deleteError;
-
-      // 4. تحديث الواجهة
-      setVisits((prev) => prev.filter((v) => v.id !== visitId));
-
-      // إذا كانت الزيارة المحذوفة هي المحددة حالياً، نغلق المودال
-      if (selectedVisit?.id === visitId) {
-        setSelectedVisit(null);
-      }
-
-      // إظهار رسالة نجاح
-      alert("تم حذف الزيارة بنجاح");
-      return true;
-    } catch (err) {
-      console.error("فشل في حذف الزيارة:", err);
-      setError(err?.message || "حدث خطأ أثناء حذف الزيارة");
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
 
 const deleteAllVisits = async () => {
   if (!user) {
@@ -1347,7 +1387,7 @@ const filteredVisits = visits
                             filteredProducts.map((product) => (
                               <div
                                 key={product.id}
-                                onMouseLeave={() => {
+                                onPointerDown={() => {
                                   setNewProductId(product.id);
                                   setProductSearchTerm(
                                     `${product.name} - ${formatCurrency(
