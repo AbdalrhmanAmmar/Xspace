@@ -117,7 +117,7 @@ function App() {
             <Route
               path="/DeletedVisitsList"
               element={
-                <ProtectedRoute adminOnly>
+                <ProtectedRoute >
                   <>
                     <Navbar />
                     <DeletedVisitsList />

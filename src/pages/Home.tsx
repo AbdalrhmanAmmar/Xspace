@@ -132,7 +132,7 @@ export const Home = () => {
           </Link>
           )}
 
-          {isAdmin && (
+      
             <Link
               to="/DeletedVisitsList"
               className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
@@ -145,7 +145,7 @@ export const Home = () => {
                 عرض سجل الزيارات المحذوفة
               </p>
             </Link>
-          )}
+      
             <Link
             to="/AttendanceForm"
             className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
