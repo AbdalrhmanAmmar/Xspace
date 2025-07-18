@@ -84,7 +84,7 @@ const [visitType, setVisitType] = useState<"default" | "small" | "big">("default
 
   const HOUR_RATE = 10;
   const HOUR_RATE_FIRST = 10;
-  const HOUR_RATE_NEXT = 5;
+  const HOUR_RATE_NEXT = 10;
 
   //edit-time
   const formatDateTimeForInput = (date: Date) => {

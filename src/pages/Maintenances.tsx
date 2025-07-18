@@ -656,6 +656,14 @@ const Expenses = () => {
               {formatCurrency(totalSalaries)}
             </p>
           </div>
+          <div className="bg-purple-500/10 backdrop-blur-lg p-6 rounded-xl border border-purple-500/20">
+            <h3 className="text-sm font-medium text-purple-400 mb-2">
+             اجمالي البضائع
+            </h3>
+            <p className="text-2xl font-bold text-purple-400">
+              {formatCurrency(totalSalaries)}
+            </p>
+          </div>
         </div>
 
         {/* Add Expense Form Modal */}
