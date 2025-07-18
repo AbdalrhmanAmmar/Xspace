@@ -20,6 +20,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { AttendanceModal } from "../components/AttendanceModal";
 
 
+
 interface SubscriptionPrices {
   weekly: number;
   halfMonthly: number;
@@ -37,6 +38,8 @@ export const Subscriptions = () => {
   const [activeSubscription, setActiveSubscription] = useState<Subscription | null>(null);
 
   const { user } = useAuth();
+    
+    const isAdmin = user?.username == "admin@xspace.com";
   const [formData, setFormData] = useState({
     clientName: "",
     type: "أسبوعي" as "أسبوعي" | "نصف شهري" | "شهري",
@@ -372,13 +375,17 @@ const fetchSubscriptions = async () => {
                 <LayoutList className="h-5 w-5" />
               </button>
             </div>
-            <button
+            {isAdmin && (
+                <button
               onClick={() => setShowSettings(true)}
               className="bg-slate-700 text-white px-4 py-2 rounded-lg font-medium hover:bg-slate-600 transition-colors flex items-center gap-2"
             >
               <Settings className="h-5 w-5" />
               إعدادات الأسعار
             </button>
+
+            )}
+          
             <button
               onClick={() => {
                 setEditingSubscription(null);
@@ -663,7 +670,9 @@ const fetchSubscriptions = async () => {
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button
+                      {isAdmin && (
+                          <div>
+                              <button
                         onClick={() => handleEdit(subscription)}
                         className="p-1.5 text-blue-400 hover:bg-blue-400/10 rounded-lg transition-colors"
                       >
@@ -675,6 +684,12 @@ const fetchSubscriptions = async () => {
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
+
+                      </div>
+
+                      )}
+                    
+                
                       <span
                         className={`px-3 py-1 rounded-full text-xs font-medium ${
                           subscription.status === "نشط"

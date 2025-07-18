@@ -18,6 +18,7 @@ import { AbsentClients } from "./pages/AbsentClient";
 import MoneyArchive from "./pages/MoneyArchive";
 import { ProductPerformance } from "./pages/ProductsPerformance";
 import ProductProfits from "./pages/ProductProfits";
+import Partners from "./pages/Partners";
 
 function App() {
   return (
@@ -177,6 +178,17 @@ function App() {
                   <>
                     <Navbar />
                     <ProductProfits  />
+                  </>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/Partners"
+              element={
+                <ProtectedRoute adminOnly>
+                  <>
+                    <Navbar />
+                    <Partners  />
                   </>
                 </ProtectedRoute>
               }

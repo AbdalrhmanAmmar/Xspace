@@ -52,53 +52,57 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
     fetchAttendance();
   }, [subscriptionId, totalDays]);
 
-  const toggleDay = (index: number) => {
-    const updated = [...attendance];
-    const updatedTimestamps = [...timestamps];
+const toggleDay = (index: number) => {
+  const updated = [...attendance];
+  const updatedTimestamps = [...timestamps];
 
-    if (updated[index]) {
-      updated[index] = false;
-      updatedTimestamps[index] = null;
-    } else {
-      updated[index] = true;
-      updatedTimestamps[index] = new Date().toISOString();
+  if (updated[index]) {
+    updated[index] = false;
+    updatedTimestamps[index] = null;
+  } else {
+    updated[index] = true;
+    updatedTimestamps[index] = timestamps[index] || new Date().toISOString();
+  }
+
+  setAttendance(updated);
+  setTimestamps(updatedTimestamps);
+};
+
+const saveAttendance = async () => {
+  setSaving(true);
+  try {
+    // First delete all existing days for this subscription
+    await supabase
+      .from("subscription_days")
+      .delete()
+      .eq("subscription_id", subscriptionId);
+
+    // Prepare new days to insert with timestamps
+    const daysToInsert = attendance
+      .map((present, index) => {
+        if (present) {
+          return {
+            subscription_id: subscriptionId,
+            day_number: index + 1,
+            created_at: timestamps[index] || new Date().toISOString(),
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+
+    if (daysToInsert.length > 0) {
+      await supabase.from("subscription_days").insert(daysToInsert);
     }
 
-    setAttendance(updated);
-    setTimestamps(updatedTimestamps);
-  };
-
-  const saveAttendance = async () => {
-    setSaving(true);
-    try {
-      await supabase
-        .from("subscription_days")
-        .delete()
-        .eq("subscription_id", subscriptionId);
-
-      const daysToInsert = attendance
-        .map((present, index) =>
-          present
-            ? {
-                subscription_id: subscriptionId,
-                day_number: index + 1,
-              }
-            : null
-        )
-        .filter(Boolean);
-
-      if (daysToInsert.length > 0) {
-        await supabase.from("subscription_days").insert(daysToInsert);
-      }
-
-      onAttendanceMarked();
-      onClose();
-    } catch (error) {
-      console.error("Error saving attendance:", error);
-    } finally {
-      setSaving(false);
-    }
-  };
+    onAttendanceMarked();
+    onClose();
+  } catch (error) {
+    console.error("Error saving attendance:", error);
+  } finally {
+    setSaving(false);
+  }
+};
 
   const attendedDays = attendance.filter(Boolean).length;
   const attendancePercentage =

@@ -175,6 +175,20 @@ export const Home = () => {
                 </p>
               </Link>
             )}
+            {isAdmin && (
+              <Link
+                to="/Partners"
+                className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
+              >
+                <Crown className="h-12 w-12 text-primary-600 dark:text-primary-400 mb-4 group-hover:scale-110 transition-transform" />
+                <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">
+                  الشركاء
+                </h2>
+                <p className="text-slate-600 dark:text-slate-300">
+                  ارباح الشركاء
+                </p>
+              </Link>
+            )}
             
             {/* {isAdmin && (
               <Link
