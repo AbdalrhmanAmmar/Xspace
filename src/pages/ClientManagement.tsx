@@ -60,6 +60,8 @@ const [visitType, setVisitType] = useState<"default" | "small" | "big">("default
     job: "",
   });
   const [isSaleModalOpen, setIsSaleModalOpen] = useState(false);
+  const [isEditingTimeCost, setIsEditingTimeCost] = useState(false);
+const [editedTimeCost, setEditedTimeCost] = useState(0);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProducts, setSelectedProducts] = useState<CartItem[]>([]);
@@ -134,56 +136,67 @@ const handlevisit=(visit)=>{
     return { ongoing, finished, paused };
   };
 
-  const saveTimeChanges = async () => {
-    if (!selectedVisit) return;
+const saveTimeChanges = async () => {
+  if (!selectedVisit) return;
 
-    try {
-      setLoading(true);
+  try {
+    setLoading(true);
+    
+    // تحويل التواريخ إلى تنسيق ISO
+    const startTime = new Date(editedStartTime).toISOString();
+    const endTime = editedEndTime ? new Date(editedEndTime).toISOString() : null;
 
-      const updates: any = {
-        start_time: new Date(editedStartTime).toISOString(),
-      };
+    // حساب المدة الجديدة
+    const durationHours = calculateVisitDuration({
+      ...selectedVisit,
+      startTime: new Date(editedStartTime),
+      endTime: editedEndTime ? new Date(editedEndTime) : undefined
+    });
 
-      if (editedEndTime) {
-        updates.end_time = new Date(editedEndTime).toISOString();
-      }
+    // حساب تكلفة الوقت الجديدة
+    const timeCost = calculateTimeCost(
+      durationHours,
+      selectedVisit.numberOfPeople || 1,
+      selectedVisit.type || "default"
+    );
 
-      const { error } = await supabase
-        .from("visits")
-        .update(updates)
-        .eq("id", selectedVisit.id);
+    // تحديث البيانات في Supabase
+    const { error } = await supabase
+      .from("visits")
+      .update({
+        start_time: startTime,
+        end_time: endTime,
+        time_amount: timeCost,
+        updated_at: new Date().toISOString() // إضافة وقت التحديث
+      })
+      .eq("id", selectedVisit.id);
 
-      if (error) throw error;
+    if (error) throw error;
 
-      // تحديث حالة الزيارة المحلية
-      setSelectedVisit({
+    // تحديث الحالة المحلية
+    const updatedVisit = {
+      ...selectedVisit,
+      startTime: new Date(startTime),
+      endTime: endTime ? new Date(endTime) : undefined,
+      totalAmount: calculateTotalAmount({
         ...selectedVisit,
-        startTime: new Date(editedStartTime),
-      
-        endTime: editedEndTime ? new Date(editedEndTime) : undefined,
-      });
+        startTime: new Date(startTime),
+        endTime: endTime ? new Date(endTime) : undefined
+      })
+    };
 
-      // تحديث قائمة الزيارات
-      setVisits(
-        visits.map((v) =>
-          v.id === selectedVisit.id
-            ? {
-                ...v,
-                startTime: new Date(editedStartTime),
-                endTime: editedEndTime ? new Date(editedEndTime) : undefined,
-              }
-            : v
-        )
-      );
-
-      setIsEditingTime(false);
-    } catch (err) {
-      console.error("Error updating visit time:", err);
-      setError("حدث خطأ أثناء تحديث وقت الزيارة");
-    } finally {
-      setLoading(false);
-    }
-  };
+    setSelectedVisit(updatedVisit);
+    setVisits(visits.map(v => v.id === selectedVisit.id ? updatedVisit : v));
+    
+    setIsEditingTime(false);
+    setError(null);
+  } catch (err) {
+    console.error("Error updating visit time:", err);
+    setError("حدث خطأ أثناء تحديث وقت الزيارة");
+  } finally {
+    setLoading(false);
+  }
+};
 console.log(product)
   useEffect(() => {
     setFilteredProducts(
@@ -362,6 +375,44 @@ products:
     }
   };
 
+const saveTimeCostChanges = async () => {
+  if (!selectedVisit) return;
+
+  try {
+    setLoading(true);
+    
+    console.log("القيمة الجديدة:", editedTimeCost); // ✅ للتأكد من القيمة
+
+    const { error } = await supabase
+      .from("visits")
+      .update({ 
+        time_amount: editedTimeCost,
+      })
+      .eq("id", selectedVisit.id);
+
+    if (error) throw error;
+
+    // ✅ تحديث الحالة المحلية
+    setVisits(visits.map(v => 
+      v.id === selectedVisit.id 
+        ? { ...v, time_amount: editedTimeCost } 
+        : v
+    ));
+
+    setSelectedVisit({
+      ...selectedVisit,
+      time_amount: editedTimeCost, // ✅ تحديث القيمة مباشرة
+    });
+
+    setIsEditingTimeCost(false);
+  } catch (err) {
+    console.error("Error updating time cost:", err);
+    setError("فشل في حفظ التعديل");
+  } finally {
+    setLoading(false);
+  }
+};
+
 const handleSubmit = async (e: React.FormEvent, type: "default" | "small" | "big") => {
   e.preventDefault();
   if (!user) {
@@ -482,31 +533,28 @@ const handleSubmit = async (e: React.FormEvent, type: "default" | "small" | "big
     });
   };
 
-  const calculateVisitDuration = (visit: Visit): number => {
-    let totalMilliseconds: number;
+const calculateVisitDuration = (visit: Visit): number => {
+  const start = visit.startTime.getTime();
+  const end = visit.endTime ? visit.endTime.getTime() : new Date().getTime();
+  
+  let totalMilliseconds = end - start;
 
-    if (!visit.endTime) {
-      totalMilliseconds = new Date().getTime() - visit.startTime.getTime();
-    } else {
-      totalMilliseconds = visit.endTime.getTime() - visit.startTime.getTime();
-    }
+  // طرح أوقات التوقف إن وجدت
+  visit.pauseHistory?.forEach(pause => {
+    const pauseStart = pause.startTime.getTime();
+    const pauseEnd = pause.endTime ? pause.endTime.getTime() : new Date().getTime();
+    totalMilliseconds -= (pauseEnd - pauseStart);
+  });
 
-    visit.pauseHistory.forEach((pause) => {
-      const pauseEnd = pause.endTime || new Date();
-      totalMilliseconds -= pauseEnd.getTime() - pause.startTime.getTime();
-    });
+  const totalMinutes = Math.floor(totalMilliseconds / (1000 * 60));
+  
+  if (totalMinutes < 15) return 0;
+  
+  const fullHours = Math.floor(totalMinutes / 60);
+  const remainingMinutes = totalMinutes % 60;
 
-    const totalMinutes = Math.floor(totalMilliseconds / (1000 * 60));
-
-    if (totalMinutes < 15) {
-      return 0;
-    }
-
-    const fullHours = Math.floor(totalMinutes / 60);
-    const remainingMinutes = totalMinutes % 60;
-
-    return remainingMinutes >= 15 ? fullHours + 1 : fullHours;
-  };
+  return remainingMinutes >= 15 ? fullHours + 1 : fullHours;
+};
 
 const calculateTimeCost = (
   hours: number,
@@ -532,12 +580,14 @@ const calculateTotalAmount = (visit: Visit): number => {
     (sum, p) => sum + p.price * p.quantity,
     0
   );
-  const hours = calculateVisitDuration(visit);
-  const timeTotal = calculateTimeCost(
-    hours,
+  
+  // إذا كانت هناك قيمة معدلة لـ time_amount، استخدمها بدلاً من الحساب التلقائي
+  const timeTotal = visit.time_amount || calculateTimeCost(
+    calculateVisitDuration(visit),
     visit.numberOfPeople || 1,
-    visit.type || "default" // ✅ استخدام النوع من الزيارة
+    visit.type || "default"
   );
+
   return productsTotal + timeTotal;
 };
 
@@ -632,11 +682,17 @@ const endVisit = async (visitId: string) => {
     const currentTime = new Date().toISOString();
     const visit = visits.find((v) => v.id === visitId);
 
-    if (visit?.isPaused) {
+    if (!visit) throw new Error("الزيارة غير موجودة");
+
+    // ✅ إذا كانت الزيارة متوقفة مؤقتًا، استأنفها أولًا
+    if (visit.isPaused) {
       await resumeVisit(visitId);
     }
 
-    const hours = calculateVisitDuration(visit!);
+    // ✅ استخدم endTime المحفوظ إن وجد، أو احفظ الآن فقط إذا لم يكن موجود
+    const finalEndTime = visit.endTime ? visit.endTime.toISOString() : currentTime;
+
+    const hours = calculateVisitDuration(visit);
     const timeCost = calculateTimeCost(
       hours,
       visit?.numberOfPeople || 1,
@@ -646,7 +702,7 @@ const endVisit = async (visitId: string) => {
     const { error } = await supabase
       .from("visits")
       .update({
-        end_time: currentTime,
+        end_time: finalEndTime, // ✅ احترم التعديلات السابقة
         time_amount: timeCost,
         number_of_people: visit?.numberOfPeople || 1,
       })
@@ -663,6 +719,7 @@ const endVisit = async (visitId: string) => {
     setLoading(false);
   }
 };
+
 
 
 
@@ -1538,18 +1595,52 @@ const filteredVisits = visits
                         {selectedVisit.numberOfPeople || 1} أشخاص
                       </span>
                     </div>
-                    <div className="flex justify-between text-white">
-                      <span>تكلفة الوقت:</span>
-                      <span>
-                        {formatCurrency(
-                          calculateTimeCost(
-                            calculateVisitDuration(selectedVisit),
-                            selectedVisit.numberOfPeople || 1,
-                            selectedVisit.type || "default"
-                          )
-                        )}
-                      </span>
-                    </div>
+<div className="flex justify-between text-white">
+  <span>تكلفة الوقت:</span>
+  {isEditingTimeCost ? (
+    <div className="flex gap-2 items-center">
+      <input
+        type="number"
+        value={editedTimeCost}
+        onChange={(e) => setEditedTimeCost(Number(e.target.value))}
+        className="w-24 px-2 py-1 bg-slate-700 border border-slate-600 rounded text-white"
+      />
+      <button
+        onClick={saveTimeCostChanges}
+        className="text-xs bg-blue-600 px-2 py-1 rounded hover:bg-blue-700"
+      >
+        حفظ
+      </button>
+    </div>
+  ) : (
+    <div className="flex items-center gap-2">
+      <span>
+        {formatCurrency(
+          selectedVisit.time_amount || calculateTimeCost( // ✅ يعرض القيمة المعدلة إذا وجدت
+            calculateVisitDuration(selectedVisit),
+            selectedVisit.numberOfPeople || 1,
+            selectedVisit.type || "default"
+          )
+        )}
+      </span>
+      <button
+        onClick={() => {
+          setEditedTimeCost(
+            selectedVisit.time_amount || calculateTimeCost(
+              calculateVisitDuration(selectedVisit),
+              selectedVisit.numberOfPeople || 1,
+              selectedVisit.type || "default"
+            )
+          );
+          setIsEditingTimeCost(true);
+        }}
+        className="text-blue-400 hover:text-blue-300"
+      >
+        <Edit className="h-4 w-4" />
+      </button>
+    </div>
+  )}
+</div>
                     <div className="flex justify-between text-white font-bold pt-2 border-t border-slate-600">
                       <span>الإجمالي:</span>
                       <span>
